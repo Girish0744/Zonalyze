@@ -10,6 +10,8 @@ backend/Zonalyze/
 
 # Environment files
 .env
+*.zip
+*.csv
 
 # Node
 node_modules/
