@@ -3,16 +3,24 @@ from sqlalchemy.orm import Session
 
 from app.db.test_connection import test_database_connection
 from app.db.dependencies import get_db
+from app.schemas.bus import RegisteredSensorsResponse, PacketHistoryResponse
+from app.schemas.dashboard import DashboardSummaryResponse
+from app.schemas.report import FeasibilityReportResponse
+from app.schemas.scenario import AnalyzeScenarioRequest
+from app.schemas.validation import SystemValidationResponse
+from app.schemas.model_status import ModelStatusResponse
+from app.schemas.sensor_packet import SensorPacket
+from app.services.catalog_service import get_municipalities, get_business_subcategories
 from app.services.dashboard_service import get_dashboard_summary, analyze_scenario
 from app.services.message_bus_service import (
     get_registered_sensors,
     get_latest_packet,
     get_packet_history,
 )
-from app.schemas.dashboard import DashboardSummaryResponse
-from app.schemas.scenario import AnalyzeScenarioRequest
-from app.schemas.bus import RegisteredSensorsResponse, PacketHistoryResponse
-from app.schemas.sensor_packet import SensorPacket
+from app.services.report_service import build_feasibility_report
+from app.services.validation_service import run_system_validation
+from app.services.model_status_service import get_model_status
+
 
 router = APIRouter()
 
@@ -50,9 +58,39 @@ def dashboard_summary(db: Session = Depends(get_db)):
 @router.post("/analyze-scenario", response_model=DashboardSummaryResponse)
 def analyze_scenario_route(
     request: AnalyzeScenarioRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    return analyze_scenario(request, db)
+    return analyze_scenario(request=request, db=db)
+
+
+@router.post("/reports/feasibility", response_model=FeasibilityReportResponse)
+def feasibility_report_route(
+    request: AnalyzeScenarioRequest,
+    db: Session = Depends(get_db),
+):
+    dashboard = analyze_scenario(request=request, db=db)
+    return build_feasibility_report(dashboard)
+
+
+
+@router.get("/ml/model-status", response_model=ModelStatusResponse)
+def model_status_route():
+    return get_model_status()
+
+
+@router.get("/validation/system", response_model=SystemValidationResponse)
+def system_validation_route(db: Session = Depends(get_db)):
+    return run_system_validation(db)
+
+
+@router.get("/municipalities")
+def municipalities_route():
+    return {"municipalities": get_municipalities()}
+
+
+@router.get("/business-subcategories")
+def business_subcategories_route():
+    return {"business_subcategories": get_business_subcategories()}
 
 
 @router.get("/bus/registered-sensors", response_model=RegisteredSensorsResponse)

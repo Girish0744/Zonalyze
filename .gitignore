@@ -12,6 +12,7 @@ backend/Zonalyze/
 .env
 *.zip
 *.csv
+*.docx
 
 # Node
 node_modules/
