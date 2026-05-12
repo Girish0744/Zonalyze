@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
+import json
 
 import joblib
 import pandas as pd
@@ -10,6 +11,7 @@ MODEL_DIR = Path("app/ml/models")
 RISK_MODEL_PATH = MODEL_DIR / "risk_classifier.pkl"
 REVENUE_MODEL_PATH = MODEL_DIR / "revenue_regressor.pkl"
 FEASIBILITY_MODEL_PATH = MODEL_DIR / "feasibility_regressor.pkl"
+MODEL_METADATA_PATH = MODEL_DIR / "model_metadata.json"
 
 
 class ZonalyzePredictor:
@@ -17,9 +19,37 @@ class ZonalyzePredictor:
         self.risk_model = joblib.load(RISK_MODEL_PATH)
         self.revenue_model = joblib.load(REVENUE_MODEL_PATH)
         self.feasibility_model = joblib.load(FEASIBILITY_MODEL_PATH)
+        self.feature_columns = self._load_feature_columns()
+
+    def _load_feature_columns(self) -> List[str] | None:
+        if not MODEL_METADATA_PATH.exists():
+            return None
+
+        with MODEL_METADATA_PATH.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+
+        categorical = metadata.get("categorical_features", [])
+        numeric = metadata.get("numeric_features", [])
+        columns = [*categorical, *numeric]
+        return columns or None
+
+    def _prepare_input(self, feature_row: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Keep model input aligned with the training feature schema.
+
+        Step 9 adds evidence/provenance fields to the scenario feature row. Those
+        fields are useful for transparency, but they were not part of model
+        training. This method filters the row before prediction so transparency
+        fields do not break sklearn feature-name validation.
+        """
+        if not self.feature_columns:
+            return pd.DataFrame([feature_row])
+
+        filtered = {column: feature_row.get(column) for column in self.feature_columns}
+        return pd.DataFrame([filtered], columns=self.feature_columns)
 
     def predict(self, feature_row: Dict[str, Any]) -> Dict[str, Any]:
-        input_df = pd.DataFrame([feature_row])
+        input_df = self._prepare_input(feature_row)
 
         risk_class = self.risk_model.predict(input_df)[0]
         risk_probs = self.risk_model.predict_proba(input_df)[0]

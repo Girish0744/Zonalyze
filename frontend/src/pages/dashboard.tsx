@@ -8,12 +8,18 @@ import {
   BrainCircuit,
   Cpu,
   Database,
+  Gauge,
   DollarSign,
   Download,
+  GitCompare,
+  History,
+  Save,
   MapPin,
+  Navigation,
   Settings,
   Signal,
   ShieldCheck,
+  Info,
   Store,
   Target,
   TrendingUp,
@@ -48,16 +54,24 @@ import { useToast } from "@/hooks/use-toast";
 
 import {
   analyzeScenario,
+  clearScenarioHistory,
+  compareScenarioHistory,
   fetchBusinessSubcategories,
   fetchDashboardSummary,
   fetchMunicipalities,
   fetchModelStatus,
+  fetchGeospatialMarketMap,
+  fetchScenarioHistory,
   generateFeasibilityReport,
   runSystemValidation,
+  saveScenarioToHistory,
   type BusinessSubcategoryOption,
   type DashboardSummaryResponse,
+  type GeospatialMarketContext,
   type MunicipalityOption,
   type ModelStatusResponse,
+  type ScenarioComparisonResponse,
+  type ScenarioHistoryItem,
   type SystemValidationResponse,
 } from "@/services/api";
 
@@ -166,9 +180,119 @@ function formatPercent(value?: number | null) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function credibilityClass(level?: string) {
+  if (level === "strong") return "text-emerald-400 border-emerald-400/30";
+  if (level === "moderate") return "text-primary border-primary/30";
+  if (level === "limited") return "text-accent border-accent/30";
+  return "text-destructive border-destructive/30";
+}
+
 function readableRecommendation(value?: string) {
   if (!value) return "No recommendation";
   return value.replace(/_/g, " ").toUpperCase();
+}
+
+function markerClass(markerType: string) {
+  if (markerType === "competitor") return "bg-destructive border-destructive shadow-[0_0_18px_rgba(239,68,68,0.45)]";
+  if (markerType === "demand") return "bg-emerald-400 border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]";
+  if (markerType === "lease") return "bg-accent border-accent shadow-[0_0_18px_rgba(245,158,11,0.45)]";
+  return "bg-primary border-primary shadow-[0_0_18px_rgba(6,182,212,0.45)]";
+}
+
+function MarketMapPanel({ geoContext }: { geoContext: GeospatialMarketContext | null }) {
+  if (!geoContext) {
+    return (
+      <Card className="scada-panel border-white/5">
+        <CardContent className="p-5">
+          <p className="text-xs lcd-text text-muted-foreground">Geospatial market context is loading...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const radiusSize = Math.min(72, Math.max(34, geoContext.radius_km * 4));
+
+  return (
+    <Card className="scada-panel border-white/5 overflow-hidden">
+      <CardHeader className="pb-2 pt-4 px-5">
+        <CardTitle className="text-sm lcd-text text-white/80 flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2">
+            <Navigation className="w-4 h-4 text-primary" /> Geospatial Market View
+          </span>
+          <Badge variant="outline" className="text-primary border-primary/30 uppercase">
+            {geoContext.map_credibility}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-5 pt-2 grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div className="xl:col-span-3 relative h-[300px] rounded-lg border border-primary/20 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.12),rgba(2,6,23,0.95)_62%)] overflow-hidden">
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
+          <div className="absolute left-1/2 top-1/2 rounded-full border border-primary/40 bg-primary/5 -translate-x-1/2 -translate-y-1/2" style={{ width: `${radiusSize}%`, height: `${radiusSize}%` }} />
+          <div className="absolute left-1/2 top-1/2 w-4 h-4 rounded-full bg-primary border border-white/60 -translate-x-1/2 -translate-y-1/2 shadow-[0_0_20px_rgba(6,182,212,0.8)]" />
+          <div className="absolute left-1/2 top-[calc(50%+18px)] -translate-x-1/2 text-[10px] font-mono text-primary uppercase tracking-widest whitespace-nowrap">
+            {geoContext.municipality_name}
+          </div>
+
+          {geoContext.markers.map((marker) => {
+            const left = 50 + marker.x_offset_pct * 0.75;
+            const top = 50 - marker.y_offset_pct * 0.75;
+            const size = marker.marker_type === "competitor" ? 9 : 13;
+            return (
+              <div
+                key={marker.marker_id}
+                className={`absolute rounded-full border ${markerClass(marker.marker_type)}`}
+                style={{ left: `${left}%`, top: `${top}%`, width: size, height: size, transform: "translate(-50%, -50%)" }}
+                title={`${marker.label} • ${marker.credibility}`}
+              />
+            );
+          })}
+
+          <div className="absolute left-3 bottom-3 right-3 flex flex-wrap gap-2">
+            <Badge variant="outline" className="text-destructive border-destructive/30">Competitor evidence</Badge>
+            <Badge variant="outline" className="text-emerald-400 border-emerald-400/30">Demand proxy</Badge>
+            <Badge variant="outline" className="text-accent border-accent/30">Lease pressure</Badge>
+          </div>
+        </div>
+
+        <div className="xl:col-span-2 space-y-3">
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Coverage</p>
+            <p className="text-sm font-mono text-white">{geoContext.radius_label}</p>
+            <p className="text-[10px] text-white/50 mt-1">
+              Center: {geoContext.center.latitude.toFixed(4)}, {geoContext.center.longitude.toFixed(4)}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+              <p className="text-[9px] text-muted-foreground uppercase">Demand</p>
+              <p className="text-xs font-mono text-emerald-400">{geoContext.demand_pressure_index.toFixed(1)}</p>
+            </div>
+            <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+              <p className="text-[9px] text-muted-foreground uppercase">Comp.</p>
+              <p className="text-xs font-mono text-destructive">{geoContext.competition_pressure_index.toFixed(1)}</p>
+            </div>
+            <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+              <p className="text-[9px] text-muted-foreground uppercase">Lease</p>
+              <p className="text-xs font-mono text-accent">{geoContext.rent_pressure_index.toFixed(1)}</p>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-white/55 leading-relaxed">{geoContext.coverage_note}</p>
+          <p className="text-[10px] text-white/45 leading-relaxed">{geoContext.evidence_note}</p>
+
+          <div className="rounded border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-[10px] text-primary uppercase tracking-widest mb-2">Next geospatial data needed</p>
+            <ul className="space-y-1">
+              {geoContext.next_data_needed.slice(0, 3).map((item) => (
+                <li key={item} className="text-[10px] text-white/55 leading-relaxed">• {item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function Dashboard() {
@@ -196,6 +320,12 @@ export default function Dashboard() {
   const [systemValidation, setSystemValidation] =
     useState<SystemValidationResponse | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
+  const [scenarioHistory, setScenarioHistory] = useState<ScenarioHistoryItem[]>([]);
+  const [geoContext, setGeoContext] = useState<GeospatialMarketContext | null>(null);
+  const [scenarioComparison, setScenarioComparison] =
+    useState<ScenarioComparisonResponse | null>(null);
+  const [isSavingScenario, setIsSavingScenario] = useState(false);
+  const [isComparingScenarios, setIsComparingScenarios] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const debounceRef = useRef<number | null>(null);
@@ -204,6 +334,11 @@ export default function Dashboard() {
   const ml = dashboardData?.ml_prediction ?? null;
   const explanation = dashboardData?.prediction_explanation ?? null;
   const breakdown = dashboardData?.analysis_breakdown ?? null;
+  const credibility = dashboardData?.prediction_credibility ?? null;
+  const competitionEvidence = dashboardData?.competition_evidence ?? null;
+  const leaseCostEvidence = dashboardData?.lease_cost_evidence ?? null;
+  const demandEvidence = dashboardData?.demand_evidence ?? null;
+  const recommendationDecision = dashboardData?.recommendation_decision ?? null;
   const populationValue = getMetric(dashboardData, "population_total");
   const studentPct = getMetric(dashboardData, "students_pct");
   const familiesPct = getMetric(dashboardData, "families_pct");
@@ -232,15 +367,23 @@ export default function Dashboard() {
       try {
         setIsInitialLoading(true);
 
-        const [municipalitiesData, businessData, modelStatusData] = await Promise.all([
+        const [municipalitiesData, businessData, modelStatusData, historyData, geoData] = await Promise.all([
           fetchMunicipalities(),
           fetchBusinessSubcategories(),
           fetchModelStatus().catch(() => null),
+          fetchScenarioHistory().catch(() => null),
+          fetchGeospatialMarketMap({
+            municipality_name: DEFAULT_MUNICIPALITY,
+            business_subcategory: DEFAULT_BUSINESS,
+            radius_km: DEFAULT_RADIUS,
+          }).catch(() => null),
         ]);
 
         setMunicipalityOptions(municipalitiesData.municipalities);
         setBusinessOptions(businessData.business_subcategories);
         setModelStatus(modelStatusData);
+        setScenarioHistory(historyData?.scenarios ?? []);
+        setGeoContext(geoData);
 
         let firstDashboard: DashboardSummaryResponse;
         try {
@@ -298,6 +441,12 @@ export default function Dashboard() {
         });
 
         setDashboardData(response);
+        const geoResponse = await fetchGeospatialMarketMap({
+          municipality_name: municipalityName,
+          business_subcategory: businessSubcategory,
+          radius_km: radius[0],
+        });
+        setGeoContext(geoResponse);
         setLastUpdate(new Date());
       } catch (error) {
         toast({
@@ -390,6 +539,86 @@ export default function Dashboard() {
       });
     } finally {
       setIsValidating(false);
+    }
+  };
+
+
+  const handleSaveScenario = async () => {
+    try {
+      setIsSavingScenario(true);
+      const savedScenario = await saveScenarioToHistory({
+        municipality_name: municipalityName,
+        business_subcategory: businessSubcategory,
+        radius_km: radius[0],
+      });
+      const history = await fetchScenarioHistory();
+      setScenarioHistory(history.scenarios);
+
+      toast({
+        title: "Scenario saved",
+        description: `${savedScenario.business_subcategory} in ${savedScenario.municipality_name} was added to comparison history.`,
+        duration: 3000,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not save scenario",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The scenario could not be saved to history.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingScenario(false);
+    }
+  };
+
+  const handleCompareScenarios = async () => {
+    try {
+      setIsComparingScenarios(true);
+      const comparison = await compareScenarioHistory();
+      const history = await fetchScenarioHistory();
+      setScenarioHistory(history.scenarios);
+      setScenarioComparison(comparison);
+
+      toast({
+        title: comparison.compared_count > 1 ? "Scenario comparison ready" : "Save more scenarios",
+        description: comparison.comparison_summary,
+        duration: 4500,
+      });
+    } catch (error) {
+      toast({
+        title: "Scenario comparison failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The saved scenarios could not be compared.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsComparingScenarios(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      const history = await clearScenarioHistory();
+      setScenarioHistory(history.scenarios);
+      setScenarioComparison(null);
+      toast({
+        title: "Scenario history cleared",
+        description: "Saved scenario comparisons were removed from the local backend history file.",
+        duration: 3000,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not clear history",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Scenario history could not be cleared.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -541,6 +770,96 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
+
+          <Card className="scada-panel border-white/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                      Scenario History
+                    </p>
+                    <p className="text-xs font-mono text-white/80 uppercase">
+                      {scenarioHistory.length} saved
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-primary border-primary/30">
+                  Compare
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="bg-primary/10 hover:bg-primary/20 border-primary/30 text-primary-foreground font-mono text-xs uppercase"
+                  onClick={handleSaveScenario}
+                  disabled={isSavingScenario}
+                >
+                  <Save className={`w-3 h-3 mr-2 ${isSavingScenario ? "animate-pulse" : ""}`} />
+                  {isSavingScenario ? "Saving" : "Save"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="bg-white/[0.03] hover:bg-white/[0.07] border-white/10 text-white font-mono text-xs uppercase"
+                  onClick={handleCompareScenarios}
+                  disabled={isComparingScenarios || scenarioHistory.length < 1}
+                >
+                  <GitCompare className={`w-3 h-3 mr-2 ${isComparingScenarios ? "animate-pulse" : ""}`} />
+                  Compare
+                </Button>
+              </div>
+
+              <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+                {scenarioHistory.slice(0, 4).map((item) => (
+                  <div key={item.scenario_id} className="rounded border border-white/10 bg-white/[0.03] p-2">
+                    <p className="text-[11px] font-mono text-white leading-snug">
+                      {item.business_subcategory}
+                    </p>
+                    <p className="text-[10px] text-white/50">
+                      {item.municipality_name} • {item.radius_km} km • {item.predicted_risk_class ?? "unknown"} risk
+                    </p>
+                    <p className="text-[10px] text-primary mt-1">
+                      {formatCurrency(item.predicted_monthly_net_revenue)} • {item.predicted_feasibility_score?.toFixed(1) ?? "N/A"}/100
+                    </p>
+                  </div>
+                ))}
+                {scenarioHistory.length === 0 && (
+                  <p className="text-[10px] text-white/50 leading-relaxed">
+                    Save a scenario to compare locations, business types, and confidence later.
+                  </p>
+                )}
+              </div>
+
+              {scenarioComparison && (
+                <div className="rounded border border-primary/20 bg-primary/[0.04] p-3 space-y-2">
+                  <p className="text-[10px] text-primary uppercase tracking-widest">
+                    Comparison Summary
+                  </p>
+                  <p className="text-[10px] text-white/65 leading-relaxed">
+                    {scenarioComparison.comparison_summary}
+                  </p>
+                  {scenarioComparison.rankings.slice(0, 2).map((item, index) => (
+                    <p key={item.scenario_id} className="text-[10px] text-white/70">
+                      #{index + 1} {item.label} — {item.overall_score.toFixed(1)}/100
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {scenarioHistory.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="w-full text-[10px] text-white/50 hover:text-white/80"
+                  onClick={handleClearHistory}
+                >
+                  Clear Saved Scenarios
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="scada-panel p-4 rounded-lg mt-auto">
             <div className="flex items-center gap-3">
               <Cpu className="w-8 h-8 text-primary/50 animate-pulse" />
@@ -607,6 +926,226 @@ export default function Dashboard() {
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
+                  <Gauge className="w-5 h-5 text-accent" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                      Prediction Credibility
+                    </p>
+                    <p className="text-xs font-mono text-white/80 uppercase">
+                      {credibility?.confidence_level ?? "unknown"}
+                    </p>
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={credibilityClass(credibility?.confidence_level)}
+                >
+                  {credibility?.overall_confidence_score?.toFixed(1) ?? "N/A"}/100
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Data</p>
+                  <p className="text-xs font-mono text-white">
+                    {credibility?.data_quality_score?.toFixed(0) ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Model</p>
+                  <p className="text-xs font-mono text-white">
+                    {credibility?.model_signal_score?.toFixed(0) ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Proxy</p>
+                  <p className="text-xs font-mono text-white">
+                    {credibility?.proxy_dependency_score?.toFixed(0) ?? "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-white/50 leading-relaxed">
+                {credibility?.user_facing_disclaimer ??
+                  "Credibility profile is not available for this scenario."}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="scada-panel border-white/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-emerald-400" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                      Demand Evidence
+                    </p>
+                    <p className="text-xs font-mono text-white/80 uppercase">
+                      {demandEvidence ? demandEvidence.credibility : "fallback proxy"}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-emerald-400 border-emerald-400/30 uppercase">
+                  {demandEvidence ? demandEvidence.demand_level : "Proxy"}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Demand Index</p>
+                  <p className="text-xs font-mono text-emerald-400">
+                    {demandEvidence?.demand_pressure_index?.toFixed(1) ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Target Pool</p>
+                  <p className="text-xs font-mono text-white">
+                    {demandEvidence ? formatNumber(demandEvidence.target_customer_pool_estimate) : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Foot Traffic</p>
+                  <p className="text-xs font-mono text-white">
+                    {demandEvidence?.foot_traffic_proxy_index?.toFixed(1) ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Transit</p>
+                  <p className="text-xs font-mono text-white">
+                    {demandEvidence?.transit_access_proxy_index?.toFixed(1) ?? "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-white/50 leading-relaxed">
+                {demandEvidence
+                  ? demandEvidence.data_quality_note
+                  : "No demand evidence row exists for this selected scenario yet. The backend is using an explicit fallback proxy."}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="scada-panel border-white/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Database className="w-5 h-5 text-primary" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                      Competition Evidence
+                    </p>
+                    <p className="text-xs font-mono text-white/80 uppercase">
+                      {competitionEvidence ? competitionEvidence.credibility : "fallback proxy"}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-primary border-primary/30">
+                  {competitionEvidence ? "Catalog" : "Proxy"}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Competitors</p>
+                  <p className="text-xs font-mono text-white">
+                    {competitionEvidence?.observed_competitor_count ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Density</p>
+                  <p className="text-xs font-mono text-white">
+                    {competitionEvidence?.competitor_density_per_10k?.toFixed(2) ?? "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Nearest</p>
+                  <p className="text-xs font-mono text-white">
+                    {competitionEvidence?.nearest_competitor_distance_km != null
+                      ? `${competitionEvidence.nearest_competitor_distance_km.toFixed(1)} km`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Pressure</p>
+                  <p className="text-xs font-mono text-primary">
+                    {competitionEvidence?.competition_pressure_index?.toFixed(1) ?? "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-white/50 leading-relaxed">
+                {competitionEvidence
+                  ? competitionEvidence.source_method
+                  : "No catalog row exists for this selected scenario yet. The backend is using an explicit fallback proxy."}
+              </p>
+            </CardContent>
+          </Card>
+
+
+
+          <Card className="scada-panel border-white/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-accent" />
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                      Lease Cost Evidence
+                    </p>
+                    <p className="text-xs font-mono text-white/80 uppercase">
+                      {leaseCostEvidence ? leaseCostEvidence.credibility : "fallback proxy"}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-accent border-accent/30">
+                  {leaseCostEvidence ? leaseCostEvidence.commercial_cost_pressure_level : "Proxy"}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Median</p>
+                  <p className="text-xs font-mono text-white">
+                    {formatCurrency(leaseCostEvidence?.median_monthly_lease_cost)}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Range</p>
+                  <p className="text-xs font-mono text-white">
+                    {leaseCostEvidence
+                      ? `${formatCurrency(leaseCostEvidence.low_monthly_lease_cost)} - ${formatCurrency(leaseCostEvidence.high_monthly_lease_cost)}`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">$/Sq Ft/Yr</p>
+                  <p className="text-xs font-mono text-white">
+                    {leaseCostEvidence?.lease_cost_per_sqft_year != null
+                      ? `$${leaseCostEvidence.lease_cost_per_sqft_year.toFixed(2)}`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <p className="text-[9px] text-muted-foreground uppercase">Pressure</p>
+                  <p className="text-xs font-mono text-accent">
+                    {leaseCostEvidence?.rent_pressure_index?.toFixed(1) ?? "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-white/50 leading-relaxed">
+                {leaseCostEvidence
+                  ? leaseCostEvidence.data_quality_note
+                  : "No lease evidence row exists for this selected scenario yet. The backend is using an explicit fallback proxy range."}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="scada-panel border-white/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
                   <ShieldCheck
                     className={`w-5 h-5 ${systemValidation?.overall_status === "failed" ? "text-destructive" : "text-emerald-400"}`}
                   />
@@ -660,6 +1199,8 @@ export default function Dashboard() {
               Environment Sensors
             </h2>
           </div>
+
+          <MarketMapPanel geoContext={geoContext} />
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card className="scada-panel relative group">
@@ -915,11 +1456,63 @@ export default function Dashboard() {
                   </Badge>
                   <Badge
                     variant="outline"
-                    className={recommendationBadgeClass(ml?.recommendation)}
+                    className={recommendationBadgeClass(recommendationDecision?.final_recommendation ?? ml?.recommendation)}
                   >
-                    {readableRecommendation(ml?.recommendation)}
+                    {recommendationDecision?.recommendation_label ?? readableRecommendation(ml?.recommendation)}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={credibilityClass(credibility?.confidence_level)}
+                  >
+                    Confidence: {credibility?.confidence_level?.toUpperCase() ?? "UNKNOWN"}
                   </Badge>
                 </div>
+
+                {recommendationDecision && (
+                  <div className="mt-4 rounded border border-primary/20 bg-primary/[0.04] p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                          Evidence-Aware Recommendation
+                        </p>
+                        <p className="text-sm text-white/85 mt-1">
+                          {recommendationDecision.decision_summary}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={recommendationBadgeClass(recommendationDecision.final_recommendation)}
+                      >
+                        {recommendationDecision.recommendation_label}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-white/65 leading-relaxed">
+                      {recommendationDecision.action_guidance}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] text-emerald-400 uppercase mb-1">Major Strengths</p>
+                        <ul className="space-y-1">
+                          {recommendationDecision.major_strengths.slice(0, 3).map((item) => (
+                            <li key={item} className="text-[11px] text-white/70 leading-relaxed">
+                              • {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-destructive uppercase mb-1">Major Concerns</p>
+                        <ul className="space-y-1">
+                          {recommendationDecision.major_concerns.slice(0, 3).map((item) => (
+                            <li key={item} className="text-[11px] text-white/70 leading-relaxed">
+                              • {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                   <div className="rounded border border-white/10 bg-white/[0.03] p-3">
@@ -1195,6 +1788,69 @@ export default function Dashboard() {
                       className="text-xs text-white/75 border-l border-destructive/40 pl-2"
                     >
                       {factor}
+                    </p>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="scada-panel border-white/5 bg-background/50">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Info className="w-4 h-4 text-primary" />
+                  <p className="text-xs lcd-text text-muted-foreground">
+                    What is real vs estimated?
+                  </p>
+                </div>
+                <p className="text-[10px] text-emerald-400 uppercase tracking-widest mb-2">
+                  Observed / Census-backed Inputs
+                </p>
+                <div className="space-y-2 mb-4">
+                  {(credibility?.observed_inputs ?? []).slice(0, 4).map((item) => (
+                    <div key={item.field_name} className="rounded border border-white/10 bg-white/[0.03] p-2">
+                      <p className="text-xs font-mono text-white">{item.label}</p>
+                      <p className="text-[10px] text-white/50">{item.user_note}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[10px] text-primary uppercase tracking-widest mb-2">
+                  Model-predicted Outputs
+                </p>
+                <div className="space-y-2">
+                  {(credibility?.model_predicted_outputs ?? []).slice(0, 3).map((item) => (
+                    <div key={item.field_name} className="rounded border border-white/10 bg-white/[0.03] p-2">
+                      <p className="text-xs font-mono text-white">{item.label}</p>
+                      <p className="text-[10px] text-white/50">{item.user_note}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="scada-panel border-white/5 bg-background/50">
+              <CardContent className="p-5">
+                <p className="text-xs lcd-text text-muted-foreground mb-3">
+                  Proxy Values Still Needing Real Data
+                </p>
+                <div className="space-y-2 mb-4">
+                  {(credibility?.proxy_estimated_inputs ?? []).slice(0, 4).map((item) => (
+                    <div key={item.field_name} className="rounded border border-accent/20 bg-accent/[0.03] p-2">
+                      <p className="text-xs font-mono text-accent">{item.label}</p>
+                      <p className="text-[10px] text-white/50">{item.user_note}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
+                  Next data needed
+                </p>
+                <div className="space-y-2">
+                  {(credibility?.next_data_needed ?? []).slice(0, 4).map((item) => (
+                    <p key={item} className="text-[11px] text-white/65 border-l border-destructive/40 pl-2">
+                      {item}
                     </p>
                   ))}
                 </div>

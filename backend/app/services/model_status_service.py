@@ -62,6 +62,6 @@ def get_model_status() -> ModelStatusResponse:
         model_files=file_status,
         important_note=metadata.get(
             "important_note",
-            "Models are trained on simulation-based labels and should be used as planning estimates, not guaranteed outcomes.",
+            "Models are trained on simulation-generated proxy labels. Use them for scenario comparison only until real commercial outcome data is integrated.",
         ),
     )

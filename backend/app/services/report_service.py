@@ -54,6 +54,11 @@ def build_feasibility_report(dashboard: DashboardSummaryResponse) -> Feasibility
     ml = dashboard.ml_prediction
     explanation = dashboard.prediction_explanation
     breakdown = dashboard.analysis_breakdown
+    credibility = dashboard.prediction_credibility
+    competition_evidence = dashboard.competition_evidence
+    lease_cost_evidence = dashboard.lease_cost_evidence
+    demand_evidence = dashboard.demand_evidence
+    recommendation_decision = dashboard.recommendation_decision
 
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     safe_city = dashboard.municipality_name.lower().replace(" ", "-")
@@ -78,10 +83,24 @@ Search Radius: {dashboard.radius_km:.1f} km
 Project Phase: {dashboard.project_phase}
 
 EXECUTIVE SUMMARY
-Recommendation: {ml.recommendation.replace('_', ' ').title() if ml else 'Not available'}
+Recommendation: {recommendation_decision.recommendation_label if recommendation_decision else (ml.recommendation.replace('_', ' ').title() if ml else 'Not available')}
+Decision Confidence: {_score(recommendation_decision.decision_confidence_score if recommendation_decision else None)} ({recommendation_decision.confidence_level.title() if recommendation_decision else "Not available"})
 Predicted Risk Class: {ml.predicted_risk_class.title() if ml else 'Not available'}
 Predicted Monthly Net Revenue: {_money(ml.predicted_monthly_net_revenue if ml else None)}
 Predicted Feasibility Score: {_score(ml.predicted_feasibility_score if ml else None)}
+Prediction Confidence: {_score(credibility.overall_confidence_score if credibility else None)} ({credibility.confidence_level.title() if credibility else "Not available"})
+
+RECOMMENDATION DECISION
+Decision Summary: {recommendation_decision.decision_summary if recommendation_decision else 'Not available'}
+Decision Rationale: {recommendation_decision.decision_rationale if recommendation_decision else 'Not available'}
+Action Guidance: {recommendation_decision.action_guidance if recommendation_decision else 'Not available'}
+Caution Note: {recommendation_decision.caution_note if recommendation_decision else 'Not available'}
+
+Major Strengths:
+{_lines(recommendation_decision.major_strengths if recommendation_decision else [])}
+
+Major Concerns:
+{_lines(recommendation_decision.major_concerns if recommendation_decision else [])}
 
 CORE MONITORS
 Competition: {dashboard.competition_monitor.value} [{dashboard.competition_monitor.indicator.upper()}]
@@ -102,6 +121,48 @@ PREDICTION EXPLANATION
 Revenue Explanation: {explanation.revenue_explanation if explanation else 'Not available'}
 Risk Explanation: {explanation.risk_explanation if explanation else 'Not available'}
 Feasibility Explanation: {explanation.feasibility_explanation if explanation else 'Not available'}
+
+CREDIBILITY AND DATA USE
+Confidence Level: {credibility.confidence_level.title() if credibility else "Not available"}
+Data Quality Score: {_score(credibility.data_quality_score if credibility else None)}
+Model Signal Score: {_score(credibility.model_signal_score if credibility else None)}
+Proxy Dependency Score: {_score(credibility.proxy_dependency_score if credibility else None)}
+Important Note: {credibility.user_facing_disclaimer if credibility else "Not available"}
+
+COMPETITION DATA EVIDENCE
+Source: {competition_evidence.source_name if competition_evidence else "No catalog row available"}
+Method: {competition_evidence.method if competition_evidence else "Fallback proxy estimate"}
+Credibility: {competition_evidence.credibility if competition_evidence else "limited"}
+Observed Same-Category Count: {competition_evidence.observed_competitor_count if competition_evidence else "Not available"}
+Competitor Density: {_number(competition_evidence.competitor_density_per_10k if competition_evidence else None, 2)} per 10,000 people
+Nearest Competitor Distance: {_number(competition_evidence.nearest_competitor_distance_km if competition_evidence else None, 2)} km
+Competition Pressure Index: {_score(competition_evidence.competition_pressure_index if competition_evidence else None)}
+Data Quality Note: {competition_evidence.data_quality_note if competition_evidence else "Add a real POI/business listing row for this municipality and business type."}
+
+
+DEMAND DATA EVIDENCE
+Source: {demand_evidence.source_name if demand_evidence else "No demand evidence row available"}
+Method: {demand_evidence.method if demand_evidence else "Fallback proxy estimate"}
+Credibility: {demand_evidence.credibility if demand_evidence else "limited"}
+Reachable Population Estimate: {_number(demand_evidence.reachable_population_estimate if demand_evidence else None)}
+Target Customer Pool Estimate: {_number(demand_evidence.target_customer_pool_estimate if demand_evidence else None)}
+Daytime Activity Index: {_score(demand_evidence.daytime_activity_index if demand_evidence else None)}
+Foot Traffic Proxy Index: {_score(demand_evidence.foot_traffic_proxy_index if demand_evidence else None)}
+Transit Access Proxy Index: {_score(demand_evidence.transit_access_proxy_index if demand_evidence else None)}
+Demand Pressure Index: {_score(demand_evidence.demand_pressure_index if demand_evidence else None)}
+Demand Level: {demand_evidence.demand_level.title() if demand_evidence else "Not available"}
+Data Quality Note: {demand_evidence.data_quality_note if demand_evidence else "Add mobility, foot traffic, or transaction data for this scenario."}
+
+LEASE COST DATA EVIDENCE
+Source: {lease_cost_evidence.source_name if lease_cost_evidence else "No lease evidence row available"}
+Method: {lease_cost_evidence.method if lease_cost_evidence else "Fallback proxy range"}
+Credibility: {lease_cost_evidence.credibility if lease_cost_evidence else "limited"}
+Estimated Space Requirement: {_number(lease_cost_evidence.estimated_space_sqft if lease_cost_evidence else None)} sq ft
+Estimated Monthly Lease Range: {_money(lease_cost_evidence.low_monthly_lease_cost if lease_cost_evidence else None)} to {_money(lease_cost_evidence.high_monthly_lease_cost if lease_cost_evidence else None)}
+Median Monthly Lease Estimate: {_money(lease_cost_evidence.median_monthly_lease_cost if lease_cost_evidence else None)}
+Annual Lease Cost per Square Foot: {_money(lease_cost_evidence.lease_cost_per_sqft_year if lease_cost_evidence else None)}
+Commercial Cost Pressure: {lease_cost_evidence.commercial_cost_pressure_level.title() if lease_cost_evidence else "Not available"}
+Data Quality Note: {lease_cost_evidence.data_quality_note if lease_cost_evidence else "Add commercial lease listings or broker data for this scenario."}
 
 MODEL FACTORS
 Competition Score: {_score(explanation.competition_score if explanation else None)}
@@ -134,8 +195,11 @@ Lease Cost Score: {_score(breakdown.lease_cost_analysis.score if breakdown else 
 Lease Signals:
 {_lines(breakdown.lease_cost_analysis.signals if breakdown else [])}
 
+NEXT DATA NEEDED
+{_lines(credibility.next_data_needed if credibility else [])}
+
 NOTES
-This report is generated from the current Zonalyze prototype. The system combines real demographic inputs, synthetic business scenario data, and ML-backed prediction outputs. Results should be treated as decision-support information, not as a guaranteed business outcome.
+This report is generated from the current Zonalyze prototype. The system separates observed census inputs, model predictions, proxy estimates, and derived metrics. Results should be treated as scenario-comparison support, not as guaranteed commercial outcomes.
 """
 
     return FeasibilityReportResponse(

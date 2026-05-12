@@ -5,6 +5,9 @@ from app.schemas.validation import SystemValidationResponse, ValidationCheck
 from app.services.catalog_service import get_business_subcategories, get_municipalities
 from app.services.dashboard_service import analyze_scenario, get_dashboard_summary
 from app.services.report_service import build_feasibility_report
+from app.services.competition_data_service import get_competition_observation, list_competition_observations
+from app.services.lease_cost_data_service import list_lease_cost_observations
+from app.services.demand_data_service import list_demand_observations
 
 
 DEFAULT_MUNICIPALITY = "Kitchener"
@@ -33,6 +36,36 @@ def run_system_validation(db: Session) -> SystemValidationResponse:
 
     municipalities = get_municipalities()
     business_subcategories = get_business_subcategories()
+
+    competition_rows = list_competition_observations()
+    checks.append(
+        _check(
+            "Competition observation catalog",
+            len(competition_rows) > 0,
+            f"Loaded {len(competition_rows)} competition observation rows.",
+            "No competition observation rows were loaded.",
+        )
+    )
+
+    lease_rows = list_lease_cost_observations()
+    checks.append(
+        _check(
+            "Lease cost evidence catalog",
+            len(lease_rows) > 0,
+            f"Loaded {len(lease_rows)} lease cost evidence rows.",
+            "No lease cost evidence rows were loaded.",
+        )
+    )
+
+    demand_rows = list_demand_observations()
+    checks.append(
+        _check(
+            "Demand evidence catalog",
+            len(demand_rows) > 0,
+            f"Loaded {len(demand_rows)} demand evidence rows.",
+            "No demand evidence rows were loaded.",
+        )
+    )
 
     checks.append(
         _check(
@@ -97,6 +130,56 @@ def run_system_validation(db: Session) -> SystemValidationResponse:
                 dashboard.analysis_breakdown is not None,
                 "Demand, competition, and lease analysis breakdown is present.",
                 "Analysis breakdown is missing.",
+            )
+        )
+
+        checks.append(
+            _check(
+                "Prediction credibility profile",
+                dashboard.prediction_credibility is not None
+                and dashboard.prediction_credibility.overall_confidence_score >= 0,
+                "Prediction credibility profile separates observed, predicted, proxy, and derived values.",
+                "Prediction credibility profile is missing.",
+            )
+        )
+
+        checks.append(
+            _check(
+                "Competition evidence in dashboard",
+                dashboard.competition_evidence is not None
+                or dashboard.prediction_credibility is not None,
+                "Dashboard includes competition evidence or an explicit fallback credibility profile.",
+                "Dashboard is missing competition evidence and credibility context.",
+            )
+        )
+
+        checks.append(
+            _check(
+                "Lease cost evidence in dashboard",
+                dashboard.lease_cost_evidence is not None
+                and dashboard.lease_cost_evidence.median_monthly_lease_cost > 0,
+                "Dashboard includes lease cost evidence as a range-backed estimate.",
+                "Dashboard is missing lease cost evidence.",
+            )
+        )
+
+        checks.append(
+            _check(
+                "Demand evidence in dashboard",
+                dashboard.demand_evidence is not None
+                and dashboard.demand_evidence.demand_pressure_index >= 0,
+                "Dashboard includes demand evidence with source method and credibility context.",
+                "Dashboard is missing demand evidence.",
+            )
+        )
+
+        checks.append(
+            _check(
+                "Recommendation decision layer",
+                dashboard.recommendation_decision is not None
+                and dashboard.recommendation_decision.final_recommendation in {"recommended", "borderline", "not_recommended"},
+                "Dashboard includes evidence-aware recommendation decision output.",
+                "Dashboard is missing the recommendation decision layer.",
             )
         )
     except Exception as exc:

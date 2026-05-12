@@ -65,6 +65,160 @@ export interface PredictionExplanationResponse {
   top_negative_factors: string[];
 }
 
+export interface OutputEvidenceItem {
+  field_name: string;
+  label: string;
+  method: string;
+  credibility: string;
+  source: string;
+  user_note: string;
+}
+
+export interface PredictionCredibilityResponse {
+  overall_confidence_score: number;
+  confidence_level: string;
+  data_quality_score: number;
+  model_signal_score: number;
+  proxy_dependency_score: number;
+  observed_inputs: OutputEvidenceItem[];
+  model_predicted_outputs: OutputEvidenceItem[];
+  proxy_estimated_inputs: OutputEvidenceItem[];
+  derived_metrics: OutputEvidenceItem[];
+  user_facing_disclaimer: string;
+  next_data_needed: string[];
+}
+
+
+export interface CompetitionObservationEvidence {
+  municipality_name: string;
+  business_subcategory: string;
+  source_name: string;
+  source_method: string;
+  source_date: string;
+  method: string;
+  credibility: string;
+  observed_competitor_count: number;
+  competitor_density_per_10k: number;
+  nearest_competitor_distance_km: number | null;
+  avg_competitor_rating: number | null;
+  chain_share_pct: number | null;
+  competition_pressure_index: number;
+  data_quality_note: string;
+}
+
+export interface CompetitionObservationCatalogResponse {
+  count: number;
+  observations: CompetitionObservationEvidence[];
+}
+
+
+export interface DemandEvidence {
+  municipality_name: string;
+  business_subcategory: string;
+  source_name: string;
+  source_method: string;
+  source_date: string;
+  method: string;
+  credibility: string;
+  reachable_population_estimate: number;
+  target_customer_pool_estimate: number;
+  daytime_activity_index: number;
+  foot_traffic_proxy_index: number;
+  transit_access_proxy_index: number;
+  demographic_fit_score: number;
+  demand_pressure_index: number;
+  demand_level: string;
+  data_quality_note: string;
+}
+
+export interface DemandEvidenceCatalogResponse {
+  count: number;
+  observations: DemandEvidence[];
+}
+
+export interface LeaseCostEvidence {
+  municipality_name: string;
+  business_subcategory: string;
+  source_name: string;
+  source_method: string;
+  source_date: string;
+  method: string;
+  credibility: string;
+  estimated_space_sqft: number;
+  low_monthly_lease_cost: number;
+  median_monthly_lease_cost: number;
+  high_monthly_lease_cost: number;
+  lease_cost_per_sqft_year: number;
+  rent_pressure_index: number;
+  commercial_cost_pressure_level: string;
+  data_quality_note: string;
+}
+
+export interface LeaseCostCatalogResponse {
+  count: number;
+  observations: LeaseCostEvidence[];
+}
+
+
+export interface RecommendationEvidenceSignal {
+  name: string;
+  value: string;
+  direction: string;
+  impact: string;
+  source_type: string;
+}
+
+export interface RecommendationDecisionResponse {
+  final_recommendation: string;
+  recommendation_label: string;
+  decision_confidence_score: number;
+  confidence_level: string;
+  decision_summary: string;
+  decision_rationale: string;
+  action_guidance: string;
+  major_strengths: string[];
+  major_concerns: string[];
+  evidence_signals: RecommendationEvidenceSignal[];
+  caution_note: string;
+}
+
+
+export interface GeoCoordinate {
+  latitude: number;
+  longitude: number;
+}
+
+export interface MapMarker {
+  marker_id: string;
+  marker_type: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  x_offset_pct: number;
+  y_offset_pct: number;
+  intensity: number;
+  source_method: string;
+  credibility: string;
+}
+
+export interface GeospatialMarketContext {
+  municipality_name: string;
+  business_subcategory: string;
+  radius_km: number;
+  center: GeoCoordinate;
+  map_method: string;
+  map_credibility: string;
+  coverage_note: string;
+  evidence_note: string;
+  radius_label: string;
+  competition_pressure_index: number;
+  demand_pressure_index: number;
+  rent_pressure_index: number;
+  marker_count: number;
+  markers: MapMarker[];
+  next_data_needed: string[];
+}
+
 export interface DashboardSummaryResponse {
   application_name: string;
   project_phase: string;
@@ -78,6 +232,11 @@ export interface DashboardSummaryResponse {
   ml_prediction: MLPredictionResponse | null;
   prediction_explanation: PredictionExplanationResponse | null;
   analysis_breakdown: AnalysisBreakdownResponse | null;
+  prediction_credibility: PredictionCredibilityResponse | null;
+  competition_evidence: CompetitionObservationEvidence | null;
+  lease_cost_evidence: LeaseCostEvidence | null;
+  demand_evidence: DemandEvidence | null;
+  recommendation_decision: RecommendationDecisionResponse | null;
 }
 
 export interface AnalyzeScenarioRequest {
@@ -90,6 +249,48 @@ export interface FeasibilityReportResponse {
   filename: string;
   content_type: string;
   report_text: string;
+}
+
+export interface ScenarioHistoryItem {
+  scenario_id: string;
+  saved_at: string;
+  municipality_name: string;
+  business_subcategory: string;
+  radius_km: number;
+  predicted_monthly_net_revenue: number | null;
+  predicted_risk_class: string | null;
+  predicted_feasibility_score: number | null;
+  recommendation_label: string | null;
+  decision_confidence_score: number | null;
+  prediction_confidence_score: number | null;
+  demand_pressure_index: number | null;
+  competition_pressure_index: number | null;
+  median_monthly_lease_cost: number | null;
+  data_reliability_note: string;
+}
+
+export interface ScenarioHistoryResponse {
+  count: number;
+  scenarios: ScenarioHistoryItem[];
+}
+
+export interface ScenarioComparisonItem {
+  scenario_id: string;
+  label: string;
+  overall_score: number;
+  revenue_position: number;
+  risk_position: number;
+  feasibility_position: number;
+  confidence_position: number;
+  key_tradeoff: string;
+}
+
+export interface ScenarioComparisonResponse {
+  generated_at: string;
+  compared_count: number;
+  best_overall_scenario_id: string | null;
+  comparison_summary: string;
+  rankings: ScenarioComparisonItem[];
 }
 
 
@@ -218,6 +419,131 @@ export function generateFeasibilityReport(
   );
 }
 
+
+export function fetchGeospatialMarketMap(
+  request: AnalyzeScenarioRequest,
+): Promise<GeospatialMarketContext> {
+  return requestJson<GeospatialMarketContext>(`${API_BASE}/geo/market-map`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+export function saveScenarioToHistory(
+  request: AnalyzeScenarioRequest,
+): Promise<ScenarioHistoryItem> {
+  return requestJson<ScenarioHistoryItem>(`${API_BASE}/scenario-history/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+export function fetchScenarioHistory(): Promise<ScenarioHistoryResponse> {
+  return requestJson<ScenarioHistoryResponse>(`${API_BASE}/scenario-history`);
+}
+
+export function clearScenarioHistory(): Promise<ScenarioHistoryResponse> {
+  return requestJson<ScenarioHistoryResponse>(`${API_BASE}/scenario-history`, {
+    method: "DELETE",
+  });
+}
+
+export function compareScenarioHistory(): Promise<ScenarioComparisonResponse> {
+  return requestJson<ScenarioComparisonResponse>(
+    `${API_BASE}/scenario-history/compare`,
+    { method: "POST" },
+  );
+}
+
+
+
+export function fetchCompetitionObservations(): Promise<CompetitionObservationCatalogResponse> {
+  return requestJson<CompetitionObservationCatalogResponse>(
+    `${API_BASE}/market/competition-observations`,
+  );
+}
+
+export function fetchCompetitionEvidence(
+  request: AnalyzeScenarioRequest,
+): Promise<CompetitionObservationEvidence | null> {
+  return requestJson<CompetitionObservationEvidence | null>(
+    `${API_BASE}/market/competition-evidence`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+
+export function fetchLeaseCostObservations(): Promise<LeaseCostCatalogResponse> {
+  return requestJson<LeaseCostCatalogResponse>(
+    `${API_BASE}/market/lease-cost-observations`,
+  );
+}
+
+export function fetchLeaseCostEvidence(
+  request: AnalyzeScenarioRequest,
+): Promise<LeaseCostEvidence> {
+  return requestJson<LeaseCostEvidence>(
+    `${API_BASE}/market/lease-cost-evidence`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+
+export function fetchDemandObservations(): Promise<DemandEvidenceCatalogResponse> {
+  return requestJson<DemandEvidenceCatalogResponse>(
+    `${API_BASE}/market/demand-observations`,
+  );
+}
+
+export function fetchDemandEvidence(
+  request: AnalyzeScenarioRequest,
+): Promise<DemandEvidence> {
+  return requestJson<DemandEvidence>(
+    `${API_BASE}/market/demand-evidence`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+
+export function fetchRecommendationDecision(
+  request: AnalyzeScenarioRequest,
+): Promise<RecommendationDecisionResponse> {
+  return requestJson<RecommendationDecisionResponse>(
+    `${API_BASE}/recommendation/decision`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+export function fetchPredictionCredibility(
+  request: AnalyzeScenarioRequest,
+): Promise<PredictionCredibilityResponse> {
+  return requestJson<PredictionCredibilityResponse>(
+    `${API_BASE}/ml/prediction-credibility`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+}
 
 export function fetchModelStatus(): Promise<ModelStatusResponse> {
   return requestJson<ModelStatusResponse>(`${API_BASE}/ml/model-status`);

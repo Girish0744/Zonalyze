@@ -3,6 +3,10 @@ from typing import Dict, List
 from pydantic import BaseModel
 
 from app.schemas.sensor_packet import SensorPacket
+from app.schemas.competition import CompetitionObservationEvidence
+from app.schemas.lease import LeaseCostEvidence
+from app.schemas.demand import DemandEvidence
+from app.schemas.recommendation import RecommendationDecision
 
 
 class MonitorStatus(BaseModel):
@@ -48,6 +52,29 @@ class PredictionExplanationResponse(BaseModel):
     top_negative_factors: List[str]
 
 
+class OutputEvidenceItem(BaseModel):
+    field_name: str
+    label: str
+    method: str
+    credibility: str
+    source: str
+    user_note: str
+
+
+class PredictionCredibilityResponse(BaseModel):
+    overall_confidence_score: float
+    confidence_level: str
+    data_quality_score: float
+    model_signal_score: float
+    proxy_dependency_score: float
+    observed_inputs: List[OutputEvidenceItem]
+    model_predicted_outputs: List[OutputEvidenceItem]
+    proxy_estimated_inputs: List[OutputEvidenceItem]
+    derived_metrics: List[OutputEvidenceItem]
+    user_facing_disclaimer: str
+    next_data_needed: List[str]
+
+
 class DashboardSummaryResponse(BaseModel):
     application_name: str
     project_phase: str
@@ -64,3 +91,8 @@ class DashboardSummaryResponse(BaseModel):
     ml_prediction: MLPredictionResponse | None = None
     prediction_explanation: PredictionExplanationResponse | None = None
     analysis_breakdown: AnalysisBreakdownResponse | None = None
+    prediction_credibility: PredictionCredibilityResponse | None = None
+    competition_evidence: CompetitionObservationEvidence | None = None
+    lease_cost_evidence: LeaseCostEvidence | None = None
+    demand_evidence: DemandEvidence | None = None
+    recommendation_decision: RecommendationDecision | None = None

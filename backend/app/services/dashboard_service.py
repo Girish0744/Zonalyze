@@ -10,10 +10,15 @@ from app.schemas.dashboard import (
 )
 from app.schemas.scenario import AnalyzeScenarioRequest
 from app.services.competition_service import analyze_competition
+from app.services.competition_data_service import apply_competition_observation_to_features, get_competition_observation
+from app.services.credibility_service import build_prediction_credibility
 from app.services.demand_service import analyze_demand
+from app.services.demand_data_service import apply_demand_evidence_to_features, get_demand_evidence
 from app.services.explanation_service import build_prediction_explanation
 from app.services.lease_cost_service import analyze_lease_cost
+from app.services.lease_cost_data_service import apply_lease_cost_evidence_to_features, get_lease_cost_evidence
 from app.services.people_location_service import get_people_location_packet
+from app.services.recommendation_service import build_recommendation_decision
 
 
 DEFAULT_MUNICIPALITY = "Kitchener"
@@ -42,6 +47,55 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
         business_subcategory=request.business_subcategory,
         radius_km=request.radius_km,
     )
+    features["municipality_name"] = request.municipality_name
+
+    # Step 9: replace the previous competition-only formula signal with the
+    # best available competition observation catalog value. When no catalog row
+    # exists, the service clearly marks the fallback as a proxy.
+    features = apply_competition_observation_to_features(features)
+
+    competition_evidence = get_competition_observation(
+        municipality_name=request.municipality_name,
+        business_subcategory=request.business_subcategory,
+        radius_km=request.radius_km,
+        population=float(features.get("population_2021", 0) or 0),
+    )
+
+    # Step 10: replace the previous single lease-cost estimate with a range-
+    # based evidence object. The median value is fed back into the feature row
+    # so ML predictions, explanations, and reports are all consistent.
+    features = apply_lease_cost_evidence_to_features(
+        features=features,
+        municipality_name=request.municipality_name,
+        business_subcategory=request.business_subcategory,
+        radius_km=request.radius_km,
+    )
+
+    lease_cost_evidence = get_lease_cost_evidence(
+        municipality_name=request.municipality_name,
+        business_subcategory=request.business_subcategory,
+        radius_km=request.radius_km,
+        features=features,
+    )
+
+
+    # Step 11: replace the previous formula-only demand score with a demand
+    # evidence object. It still uses proxy signals for this phase, but the
+    # method, credibility, and data gap are now explicit. The evidence-backed
+    # demand pressure is fed into the model feature row.
+    features = apply_demand_evidence_to_features(
+        features=features,
+        municipality_name=request.municipality_name,
+        business_subcategory=request.business_subcategory,
+        radius_km=request.radius_km,
+    )
+
+    demand_evidence = get_demand_evidence(
+        municipality_name=request.municipality_name,
+        business_subcategory=request.business_subcategory,
+        radius_km=request.radius_km,
+        features=features,
+    )
 
     predictor = get_predictor()
     prediction_result = predictor.predict(features)
@@ -49,6 +103,28 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
         features=features,
         prediction_result=prediction_result,
     )
+    prediction_credibility = build_prediction_credibility(
+        features=features,
+        prediction_result=prediction_result,
+    )
+
+    recommendation_decision = build_recommendation_decision(
+        features=features,
+        prediction_result=prediction_result,
+        credibility=prediction_credibility,
+        competition_evidence=competition_evidence,
+        lease_cost_evidence=lease_cost_evidence,
+        demand_evidence=demand_evidence,
+    )
+
+    # Keep the legacy ml_prediction.recommendation field aligned with the new
+    # recommendation decision layer so older frontend code still receives the
+    # best available recommendation label.
+    prediction_result = {
+        **prediction_result,
+        "recommendation": recommendation_decision.final_recommendation,
+    }
+
     analysis_breakdown = AnalysisBreakdownResponse(
         demand_analysis=analyze_demand(features),
         competition_analysis=analyze_competition(features),
@@ -90,7 +166,7 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
 
     return DashboardSummaryResponse(
         application_name="Zonalyze",
-        project_phase="Capstone Prototype - ML + Modular Analysis",
+        project_phase="Capstone Prototype - ML + Market Evidence Layer",
         municipality_name=request.municipality_name,
         business_subcategory=request.business_subcategory,
         radius_km=request.radius_km,
@@ -113,4 +189,9 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
         ml_prediction=MLPredictionResponse(**prediction_result),
         prediction_explanation=explanation,
         analysis_breakdown=analysis_breakdown,
+        prediction_credibility=prediction_credibility,
+        competition_evidence=competition_evidence,
+        lease_cost_evidence=lease_cost_evidence,
+        demand_evidence=demand_evidence,
+        recommendation_decision=recommendation_decision,
     )
