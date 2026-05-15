@@ -5,6 +5,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from app.catalogs.business_subcategories import list_business_subcategory_profiles
+
 
 CITY_FEATURES_PATH = Path("app/data/processed/ontario_csd_selected_features_2021.csv")
 BUSINESS_TAXONOMY_PATH = Path("app/data/synthetic/zonalyze_business_taxonomy_seed.csv")
@@ -37,10 +39,24 @@ def load_city_features() -> pd.DataFrame:
 
 
 def load_business_taxonomy() -> pd.DataFrame:
-    if not BUSINESS_TAXONOMY_PATH.exists():
-        raise FileNotFoundError(f"Business taxonomy file not found: {BUSINESS_TAXONOMY_PATH}")
+    """
+    Load supported business subcategories from the shared business catalog.
 
-    return pd.read_csv(BUSINESS_TAXONOMY_PATH)
+    If the older CSV taxonomy exists, it is merged in for backward
+    compatibility. The code-level catalog is the source of the expanded
+    subcategory set, while municipalities remain census-data-driven.
+    """
+    catalog_df = pd.DataFrame(list_business_subcategory_profiles())
+
+    if BUSINESS_TAXONOMY_PATH.exists():
+        csv_df = pd.read_csv(BUSINESS_TAXONOMY_PATH)
+        combined = pd.concat([csv_df, catalog_df], ignore_index=True, sort=False)
+    else:
+        combined = catalog_df
+
+    combined["subcategory_key"] = combined["subcategory"].astype(str).str.lower().str.strip()
+    combined = combined.drop_duplicates(subset=["subcategory_key"], keep="last")
+    return combined.drop(columns=["subcategory_key"])
 
 
 def get_city_row(municipality_name: str) -> pd.Series:

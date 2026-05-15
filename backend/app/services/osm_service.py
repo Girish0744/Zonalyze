@@ -8,6 +8,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
+from app.catalogs.business_subcategories import get_osm_tags_for_subcategory
+
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT_SECONDS = 18
@@ -159,7 +161,7 @@ def fetch_osm_competitors(
     radius_km: float,
     limit: int = 60,
 ) -> OSMFetchResult:
-    tags = BUSINESS_OSM_TAGS.get(business_subcategory, [("shop", "yes"), ("amenity", "restaurant")])
+    tags = get_osm_tags_for_subcategory(business_subcategory)
     query = build_overpass_query(tags, center_lat, center_lon, radius_km, limit=limit)
     cache_key = f"competitors:{business_subcategory}:{center_lat:.4f}:{center_lon:.4f}:{radius_km}:{limit}"
     result = _fetch_overpass(query, cache_key)

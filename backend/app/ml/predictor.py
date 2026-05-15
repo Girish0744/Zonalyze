@@ -1,104 +1,226 @@
+from __future__ import annotations
+
+import json
 from pathlib import Path
 from typing import Any, Dict, List
-import json
 
 import joblib
+import numpy as np
 import pandas as pd
 
+APP_DIR = Path(__file__).resolve().parents[1]
+MODELS_DIR = APP_DIR / "ml" / "models"
 
-MODEL_DIR = Path("app/ml/models")
+RISK_MODEL_PATH = MODELS_DIR / "risk_classifier.pkl"
+REVENUE_MODEL_PATH = MODELS_DIR / "revenue_regressor.pkl"
+FEASIBILITY_MODEL_PATH = MODELS_DIR / "feasibility_regressor.pkl"
+METADATA_PATH = MODELS_DIR / "model_metadata.json"
+FEATURE_COLUMNS_PATH = MODELS_DIR / "feature_columns.json"
 
-RISK_MODEL_PATH = MODEL_DIR / "risk_classifier.pkl"
-REVENUE_MODEL_PATH = MODEL_DIR / "revenue_regressor.pkl"
-FEASIBILITY_MODEL_PATH = MODEL_DIR / "feasibility_regressor.pkl"
-MODEL_METADATA_PATH = MODEL_DIR / "model_metadata.json"
+_predictor_instance = None
 
 
 class ZonalyzePredictor:
-    def __init__(self):
-        self.risk_model = joblib.load(RISK_MODEL_PATH)
-        self.revenue_model = joblib.load(REVENUE_MODEL_PATH)
-        self.feasibility_model = joblib.load(FEASIBILITY_MODEL_PATH)
+    def __init__(self) -> None:
+        self.metadata = self._load_metadata()
         self.feature_columns = self._load_feature_columns()
+        self.categorical_columns = self._load_categorical_columns()
+        self.numeric_columns = [
+            col for col in self.feature_columns if col not in self.categorical_columns
+        ]
 
-    def _load_feature_columns(self) -> List[str] | None:
-        if not MODEL_METADATA_PATH.exists():
-            return None
+        self.risk_model = self._load_model(RISK_MODEL_PATH, "risk classifier")
+        self.revenue_model = self._load_model(REVENUE_MODEL_PATH, "revenue regressor")
+        self.feasibility_model = self._load_model(
+            FEASIBILITY_MODEL_PATH, "feasibility regressor"
+        )
 
-        with MODEL_METADATA_PATH.open("r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
-
-        categorical = metadata.get("categorical_features", [])
-        numeric = metadata.get("numeric_features", [])
-        columns = [*categorical, *numeric]
-        return columns or None
-
-    def _prepare_input(self, feature_row: Dict[str, Any]) -> pd.DataFrame:
-        """
-        Keep model input aligned with the training feature schema.
-
-        Step 9 adds evidence/provenance fields to the scenario feature row. Those
-        fields are useful for transparency, but they were not part of model
-        training. This method filters the row before prediction so transparency
-        fields do not break sklearn feature-name validation.
-        """
-        if not self.feature_columns:
-            return pd.DataFrame([feature_row])
-
-        filtered = {column: feature_row.get(column) for column in self.feature_columns}
-        return pd.DataFrame([filtered], columns=self.feature_columns)
-
-    def predict(self, feature_row: Dict[str, Any]) -> Dict[str, Any]:
-        input_df = self._prepare_input(feature_row)
-
-        risk_class = self.risk_model.predict(input_df)[0]
-        risk_probs = self.risk_model.predict_proba(input_df)[0]
-        risk_classes = self.risk_model.classes_
-
-        risk_probability_map = {
-            str(label): round(float(prob), 4)
-            for label, prob in zip(risk_classes, risk_probs)
+    def _load_metadata(self) -> Dict[str, Any]:
+        if METADATA_PATH.exists():
+            return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+        return {
+            "status": "metadata_missing",
+            "important_note": (
+                "Model metadata file is missing. Retrain models with "
+                "python -m app.ml.train_models."
+            ),
         }
 
-        predicted_net_revenue = float(self.revenue_model.predict(input_df)[0])
-        predicted_feasibility = float(self.feasibility_model.predict(input_df)[0])
+    def _load_feature_columns(self) -> List[str]:
+        if FEATURE_COLUMNS_PATH.exists():
+            return json.loads(FEATURE_COLUMNS_PATH.read_text(encoding="utf-8"))
 
-        recommendation = self._recommend(
-            feasibility_score=predicted_feasibility,
-            risk_class=str(risk_class),
-            net_revenue=predicted_net_revenue,
+        columns = self.metadata.get("feature_columns")
+        if isinstance(columns, list):
+            return columns
+
+        raise FileNotFoundError(
+            f"Missing feature columns file: {FEATURE_COLUMNS_PATH}. "
+            "Run python -m app.ml.train_models."
+        )
+
+    def _load_categorical_columns(self) -> List[str]:
+        metadata_categorical = self.metadata.get("categorical_columns")
+        if isinstance(metadata_categorical, list):
+            return [col for col in metadata_categorical if col in self.feature_columns]
+
+        default_categorical = [
+            "municipality_name",
+            "business_subcategory",
+            "business_group",
+        ]
+        return [col for col in default_categorical if col in self.feature_columns]
+
+    def _load_model(self, path: Path, label: str):
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Missing {label} model file: {path}. "
+                "Run python -m app.ml.train_models or copy backend/app/ml/models "
+                "from the machine that trained the models."
+            )
+        return joblib.load(path)
+
+    def _clean_categorical_value(self, value: Any) -> str:
+        if value is None:
+            return "unknown"
+
+        try:
+            if pd.isna(value):
+                return "unknown"
+        except Exception:
+            pass
+
+        text = str(value).strip()
+
+        if text == "" or text.lower() in {"nan", "none", "null"}:
+            return "unknown"
+
+        return text
+
+    def _clean_numeric_value(self, value: Any) -> float:
+        if value is None:
+            return 0.0
+
+        try:
+            if pd.isna(value):
+                return 0.0
+        except Exception:
+            pass
+
+        if isinstance(value, (list, dict, tuple, set)):
+            return 0.0
+
+        cleaned = pd.to_numeric(value, errors="coerce")
+
+        try:
+            if pd.isna(cleaned):
+                return 0.0
+        except Exception:
+            return 0.0
+
+        cleaned_float = float(cleaned)
+
+        if not np.isfinite(cleaned_float):
+            return 0.0
+
+        return cleaned_float
+
+    def _feature_frame(self, features: Dict[str, Any]) -> pd.DataFrame:
+        row: Dict[str, Any] = {}
+
+        for column in self.feature_columns:
+            raw_value = features.get(column)
+
+            if column in self.categorical_columns:
+                row[column] = self._clean_categorical_value(raw_value)
+            else:
+                row[column] = self._clean_numeric_value(raw_value)
+
+        X = pd.DataFrame([row], columns=self.feature_columns)
+
+        for column in self.categorical_columns:
+            if column in X.columns:
+                X[column] = X[column].astype(str).fillna("unknown")
+
+        for column in self.numeric_columns:
+            if column in X.columns:
+                X[column] = (
+                    pd.to_numeric(X[column], errors="coerce")
+                    .replace([np.inf, -np.inf], np.nan)
+                    .fillna(0.0)
+                )
+
+        return X
+
+    def predict(self, features: Dict[str, Any]) -> Dict[str, Any]:
+        X = self._feature_frame(features)
+
+        revenue = float(self.revenue_model.predict(X)[0])
+        feasibility = float(self.feasibility_model.predict(X)[0])
+        risk_class = str(self.risk_model.predict(X)[0])
+
+        risk_probabilities: Dict[str, float] = {}
+
+        if hasattr(self.risk_model, "predict_proba"):
+            try:
+                probabilities = self.risk_model.predict_proba(X)[0]
+                classes = list(self.risk_model.classes_)
+                risk_probabilities = {
+                    str(cls): round(float(prob), 4)
+                    for cls, prob in zip(classes, probabilities)
+                }
+            except Exception:
+                risk_probabilities = {}
+
+        recommendation = self._recommendation_from_outputs(
+            revenue, feasibility, risk_class, risk_probabilities
         )
 
         return {
-            "predicted_risk_class": str(risk_class),
-            "risk_probabilities": risk_probability_map,
-            "predicted_monthly_net_revenue": round(predicted_net_revenue, 2),
-            "predicted_feasibility_score": round(predicted_feasibility, 2),
+            "predicted_monthly_net_revenue": round(revenue, 2),
+            "predicted_risk_class": risk_class,
+            "risk_probabilities": risk_probabilities,
+            "predicted_feasibility_score": round(max(0.0, min(100.0, feasibility)), 2),
             "recommendation": recommendation,
+            "model_version": self.metadata.get("model_version", "unknown"),
         }
 
-    def _recommend(
+    def _recommendation_from_outputs(
         self,
-        feasibility_score: float,
+        revenue: float,
+        feasibility: float,
         risk_class: str,
-        net_revenue: float,
+        risk_probabilities: Dict[str, float],
     ) -> str:
-        if feasibility_score >= 60 and risk_class in ["low", "medium"] and net_revenue > 0:
+        high_risk_prob = risk_probabilities.get("high", 0.0)
+        low_risk_prob = risk_probabilities.get("low", 0.0)
+
+        if (
+            revenue > 4000
+            and feasibility >= 68
+            and risk_class == "low"
+            and low_risk_prob >= 0.45
+        ):
             return "recommended"
 
-        if feasibility_score >= 40 and risk_class != "high":
-            return "borderline"
+        if (
+            revenue < -2500
+            or feasibility < 42
+            or risk_class == "high"
+            or high_risk_prob >= 0.55
+        ):
+            return "not_recommended"
 
-        return "not_recommended"
-
-
-_predictor_instance: ZonalyzePredictor | None = None
+        return "borderline"
 
 
 def get_predictor() -> ZonalyzePredictor:
     global _predictor_instance
-
     if _predictor_instance is None:
         _predictor_instance = ZonalyzePredictor()
-
     return _predictor_instance
+
+
+def reset_predictor_cache() -> None:
+    global _predictor_instance
+    _predictor_instance = None

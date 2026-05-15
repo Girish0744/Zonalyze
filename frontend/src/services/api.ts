@@ -199,6 +199,21 @@ export interface MapMarker {
   intensity: number;
   source_method: string;
   credibility: string;
+  osm_id?: string | null;
+  osm_type?: string | null;
+  category?: string | null;
+  address?: string | null;
+  tags: Record<string, string>;
+}
+
+export interface HeatmapCell {
+  cell_id: string;
+  latitude: number;
+  longitude: number;
+  demand_intensity: number;
+  risk_intensity: number;
+  label: string;
+  source_method: string;
 }
 
 export interface GeospatialMarketContext {
@@ -215,7 +230,13 @@ export interface GeospatialMarketContext {
   demand_pressure_index: number;
   rent_pressure_index: number;
   marker_count: number;
+  real_competitor_count: number;
+  transit_marker_count: number;
+  lease_marker_count: number;
   markers: MapMarker[];
+  heatmap_cells: HeatmapCell[];
+  osm_query_status: string;
+  osm_query_note: string;
   next_data_needed: string[];
 }
 
@@ -424,6 +445,14 @@ export function fetchGeospatialMarketMap(
   request: AnalyzeScenarioRequest,
 ): Promise<GeospatialMarketContext> {
   return requestJson<GeospatialMarketContext>(`${API_BASE}/geo/market-map`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+export function fetchOsmPois(request: AnalyzeScenarioRequest): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>(`${API_BASE}/geo/osm-pois`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
