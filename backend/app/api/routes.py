@@ -9,6 +9,7 @@ from app.schemas.report import FeasibilityReportResponse
 from app.schemas.scenario import AnalyzeScenarioRequest
 from app.schemas.validation import SystemValidationResponse
 from app.schemas.model_status import ModelStatusResponse
+from app.schemas.feature_alignment import FeatureAlignmentResponse
 from app.schemas.dashboard import PredictionCredibilityResponse
 from app.schemas.competition import CompetitionObservationCatalogResponse, CompetitionObservationEvidence
 from app.schemas.lease import LeaseCostCatalogResponse, LeaseCostEvidence
@@ -27,6 +28,7 @@ from app.services.message_bus_service import (
 from app.services.report_service import build_feasibility_report
 from app.services.validation_service import run_system_validation
 from app.services.model_status_service import get_model_status
+from app.services.feature_alignment_service import run_feature_alignment
 from app.ml.scenario_feature_builder import build_prediction_features
 from app.ml.predictor import get_predictor
 from app.services.credibility_service import build_prediction_credibility
@@ -98,6 +100,16 @@ def feasibility_report_route(
 @router.get("/ml/model-status", response_model=ModelStatusResponse)
 def model_status_route():
     return get_model_status()
+
+
+@router.get("/ml/feature-alignment", response_model=FeatureAlignmentResponse)
+def feature_alignment_default_route():
+    return run_feature_alignment()
+
+
+@router.post("/ml/feature-alignment", response_model=FeatureAlignmentResponse)
+def feature_alignment_route(request: AnalyzeScenarioRequest):
+    return run_feature_alignment(request)
 
 
 @router.post("/ml/prediction-credibility", response_model=PredictionCredibilityResponse)

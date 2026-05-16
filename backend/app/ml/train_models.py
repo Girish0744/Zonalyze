@@ -78,10 +78,9 @@ def train_models(rows: int = 50000, dataset_path: Path = DEFAULT_OUTPUT_PATH, fo
 
     print("Risk class distribution:")
     print(y_risk.value_counts())
-    
-    risk_class_counts = y_risk.value_counts()
 
-    if risk_class_counts.min() >= 2:
+    risk_class_counts = y_risk.value_counts()
+    if not risk_class_counts.empty and risk_class_counts.min() >= 2:
         stratify_target = y_risk
     else:
         stratify_target = None
@@ -91,21 +90,12 @@ def train_models(rows: int = 50000, dataset_path: Path = DEFAULT_OUTPUT_PATH, fo
             "Training will continue without stratification."
         )
 
-    (
-        X_train,
-        X_test,
-        y_rev_train,
-        y_rev_test,
-        y_risk_train,
-        y_risk_test,
-        y_feas_train,
-        y_feas_test,
-    ) = train_test_split(
+    X_train, X_test, y_rev_train, y_rev_test, y_risk_train, y_risk_test, y_feas_train, y_feas_test = train_test_split(
         X,
         y_revenue,
         y_risk,
         y_feasibility,
-        test_size=0.2,
+        test_size=0.20,
         random_state=42,
         stratify=stratify_target,
     )
