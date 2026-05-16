@@ -18,6 +18,7 @@ from app.services.explanation_service import build_prediction_explanation
 from app.services.lease_cost_service import analyze_lease_cost
 from app.services.lease_cost_data_service import apply_lease_cost_evidence_to_features, get_lease_cost_evidence
 from app.services.people_location_service import get_people_location_packet
+from app.services.prediction_consistency_service import apply_prediction_consistency_guard
 from app.services.recommendation_service import build_recommendation_decision
 
 
@@ -98,7 +99,12 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
     )
 
     predictor = get_predictor()
-    prediction_result = predictor.predict(features)
+    raw_prediction_result = predictor.predict(features)
+    prediction_result = apply_prediction_consistency_guard(
+        prediction_result=raw_prediction_result,
+        features=features,
+    )
+
     explanation = build_prediction_explanation(
         features=features,
         prediction_result=prediction_result,

@@ -22,6 +22,15 @@ class MLPredictionResponse(BaseModel):
     predicted_feasibility_score: float
     recommendation: str
 
+    # Step 21: transparent post-prediction consistency guard metadata.
+    risk_class_before_consistency: str | None = None
+    consistency_adjusted: bool = False
+    consistency_status: str | None = None
+    consistency_rules_triggered: List[str] = []
+    consistency_warnings: List[str] = []
+    consistency_note: str | None = None
+    model_version: str | None = None
+
 
 class ModuleAnalysisResponse(BaseModel):
     score: float
