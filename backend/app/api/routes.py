@@ -18,6 +18,9 @@ from app.schemas.recommendation import RecommendationDecision
 from app.schemas.scenario_history import ScenarioComparisonResponse, ScenarioHistoryItem, ScenarioHistoryResponse
 from app.schemas.geospatial import GeospatialMarketContext
 from app.schemas.sensor_packet import SensorPacket
+from app.schemas.ai_assistant import LocalAIStatusResponse, ScenarioChatRequest, ScenarioChatResponse
+from app.services.ai_assistant_service import answer_scenario_question
+from app.services.local_ai_service import get_local_ai_status
 from app.services.catalog_service import get_municipalities, get_business_subcategories
 from app.services.dashboard_service import get_dashboard_summary, analyze_scenario
 from app.services.message_bus_service import (
@@ -193,6 +196,17 @@ def recommendation_decision_route(request: AnalyzeScenarioRequest):
         demand_evidence=demand_evidence,
     )
 
+@router.get("/ai/status", response_model=LocalAIStatusResponse)
+def local_ai_status_route():
+    return get_local_ai_status()
+
+
+@router.post("/ai/scenario-chat", response_model=ScenarioChatResponse)
+def scenario_chat_route(
+    request: ScenarioChatRequest,
+    db: Session = Depends(get_db),
+):
+    return answer_scenario_question(request=request, db=db)
 
 @router.get("/validation/system", response_model=SystemValidationResponse)
 def system_validation_route(db: Session = Depends(get_db)):
