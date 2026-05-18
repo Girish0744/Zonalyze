@@ -68,12 +68,61 @@ def get_local_ai_status() -> Dict[str, Any]:
     }
 
 
+# def generate_with_ollama(
+#     prompt: str,
+#     model: Optional[str] = None,
+#     timeout_seconds: int = 90,
+# ) -> LocalAIResult:
+#     selected_model = model or _default_model()
+
+#     try:
+#         response = requests.post(
+#             f"{_base_url()}/api/generate",
+#             json={
+#                 "model": selected_model,
+#                 "prompt": prompt,
+#                 "stream": False,
+#                 "options": {
+#                     "temperature": 0.2,
+#                     "top_p": 0.85,
+#                 },
+#             },
+#             timeout=timeout_seconds,
+#         )
+#         response.raise_for_status()
+#         payload = response.json()
+#         answer = str(payload.get("response", "")).strip()
+
+#         if not answer:
+#             return LocalAIResult(
+#                 available=False,
+#                 answer="",
+#                 model=selected_model,
+#                 error="Ollama returned an empty response.",
+#             )
+
+#         return LocalAIResult(
+#             available=True,
+#             answer=answer,
+#             model=selected_model,
+#             error=None,
+#         )
+#     except Exception as exc:
+#         return LocalAIResult(
+#             available=False,
+#             answer="",
+#             model=selected_model,
+#             error=str(exc),
+#         )
+
+
 def generate_with_ollama(
     prompt: str,
     model: Optional[str] = None,
-    timeout_seconds: int = 90,
+    timeout_seconds: int | None = None,
 ) -> LocalAIResult:
     selected_model = model or _default_model()
+    timeout = timeout_seconds or int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
 
     try:
         response = requests.post(
@@ -85,9 +134,11 @@ def generate_with_ollama(
                 "options": {
                     "temperature": 0.2,
                     "top_p": 0.85,
+                    "num_predict": 260,
+                    "num_ctx": 4096,
                 },
             },
-            timeout=timeout_seconds,
+            timeout=timeout,
         )
         response.raise_for_status()
         payload = response.json()

@@ -1,0 +1,278 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BrainCircuit, Loader2, Send, Sparkles } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+type ScenarioAIChatProps = {
+  municipalityName: string;
+  businessSubcategory: string;
+  radiusKm: number;
+};
+
+type AIStatusResponse = {
+  status?: string;
+  provider?: string;
+  default_model?: string;
+  defaultModel?: string;
+  message?: string;
+};
+
+type ScenarioChatResponse = {
+  status?: string;
+  answer?: string;
+  used_signals?: string[];
+  usedSignals?: string[];
+  limitations?: string[];
+  raw_ai_available?: boolean;
+  rawAiAvailable?: boolean;
+  provider?: string;
+  model?: string;
+};
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_BACKEND_URL ||
+  "http://127.0.0.1:8000";
+
+const SUGGESTED_QUESTIONS = [
+  "Why is this scenario recommended or not recommended?",
+  "What is the biggest risk in this scenario?",
+  "What can I change to improve feasibility?",
+  "Which values are real data and which are estimated?",
+  "How reliable is this prediction?",
+];
+
+function normalizeSignals(response: ScenarioChatResponse | null): string[] {
+  if (!response) return [];
+  return response.used_signals || response.usedSignals || [];
+}
+
+function normalizeLimitations(response: ScenarioChatResponse | null): string[] {
+  if (!response) return [];
+  return response.limitations || [];
+}
+
+export default function ScenarioAIChat({
+  municipalityName,
+  businessSubcategory,
+  radiusKm,
+}: ScenarioAIChatProps) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<ScenarioChatResponse | null>(null);
+  const [aiStatus, setAiStatus] = useState<AIStatusResponse | null>(null);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [isAsking, setIsAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const scenarioLabel = useMemo(
+    () => `${businessSubcategory} in ${municipalityName} (${radiusKm} km)`,
+    [businessSubcategory, municipalityName, radiusKm],
+  );
+
+  useEffect(() => {
+    setAnswer(null);
+    setQuestion("");
+    setError(null);
+  }, [municipalityName, businessSubcategory, radiusKm]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkAIStatus() {
+      try {
+        setIsCheckingStatus(true);
+        const response = await fetch(`${API_BASE_URL}/ai/status`);
+        if (!response.ok) {
+          throw new Error(`AI status check failed with ${response.status}`);
+        }
+        const data = (await response.json()) as AIStatusResponse;
+        if (!cancelled) setAiStatus(data);
+      } catch (err) {
+        if (!cancelled) {
+          setAiStatus({
+            status: "unavailable",
+            provider: "ollama",
+            message: err instanceof Error ? err.message : "AI status unavailable",
+          });
+        }
+      } finally {
+        if (!cancelled) setIsCheckingStatus(false);
+      }
+    }
+
+    checkAIStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function askQuestion(questionText?: string) {
+    const finalQuestion = (questionText || question).trim();
+    if (!finalQuestion || isAsking) return;
+
+    try {
+      setIsAsking(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE_URL}/ai/scenario-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          municipality_name: municipalityName,
+          business_subcategory: businessSubcategory,
+          radius_km: radiusKm,
+          question: finalQuestion,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `AI request failed with ${response.status}`);
+      }
+
+      const data = (await response.json()) as ScenarioChatResponse;
+      setAnswer(data);
+      setQuestion(finalQuestion);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI request failed.");
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
+  const isReady = aiStatus?.status === "ready";
+  const statusLabel = isCheckingStatus
+    ? "checking"
+    : aiStatus?.status || "unknown";
+  const modelLabel = aiStatus?.default_model || aiStatus?.defaultModel || answer?.model || "local model";
+  const usedSignals = normalizeSignals(answer);
+  const limitations = normalizeLimitations(answer);
+
+  return (
+    <Card className="scada-panel border-white/5 overflow-hidden">
+      <CardHeader className="border-b border-white/10 pb-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-white/90">
+              <BrainCircuit className="h-5 w-5 text-primary" />
+              Ask Zonalyze AI
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Ask follow-up questions about {scenarioLabel}. Answers use Zonalyze scenario data, evidence, credibility, and recommendations.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className={
+                isReady
+                  ? "border-emerald-400/30 text-emerald-300"
+                  : "border-accent/30 text-accent"
+              }
+            >
+              AI {statusLabel}
+            </Badge>
+            <Badge variant="outline" className="border-white/15 text-white/60">
+              {modelLabel}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4 p-5">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {SUGGESTED_QUESTIONS.map((item) => (
+            <Button
+              key={item}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="justify-start border-white/10 bg-white/[0.03] text-left text-[11px] text-white/75 hover:bg-primary/10"
+              onClick={() => askQuestion(item)}
+              disabled={isAsking}
+            >
+              <Sparkles className="mr-2 h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="truncate">{item}</span>
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-2 md:flex-row">
+          <textarea
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="Ask a question about this scenario..."
+            className="min-h-[86px] flex-1 resize-none rounded-md border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none ring-0 placeholder:text-white/35 focus:border-primary/50"
+          />
+          <Button
+            type="button"
+            className="h-auto min-h-[44px] md:w-36"
+            onClick={() => askQuestion()}
+            disabled={!question.trim() || isAsking}
+          >
+            {isAsking ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="mr-2 h-4 w-4" />
+            )}
+            {isAsking ? "Asking" : "Ask AI"}
+          </Button>
+        </div>
+
+        {error && (
+          <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{error}</p>
+          </div>
+        )}
+
+        {answer?.answer && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <p className="text-xs font-mono uppercase tracking-widest text-primary/80">
+              AI response
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/85">
+              {answer.answer}
+            </p>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {usedSignals.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-mono uppercase tracking-widest text-white/35">
+                    Used signals
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {usedSignals.slice(0, 8).map((signal) => (
+                      <Badge key={signal} variant="outline" className="border-white/10 text-white/60">
+                        {signal}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {limitations.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-mono uppercase tracking-widest text-white/35">
+                    Limitations
+                  </p>
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/60">
+                    {limitations.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

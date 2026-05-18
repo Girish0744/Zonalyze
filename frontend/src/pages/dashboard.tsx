@@ -51,7 +51,9 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
+
 import RealisticMarketMap from "@/components/RealisticMarketMap";
+import ScenarioAIChat from "@/components/ScenarioAIChat";
 
 import {
   analyzeScenario,
@@ -193,6 +195,27 @@ function credibilityClass(level?: string) {
 function readableRecommendation(value?: string) {
   if (!value) return "No recommendation";
   return value.replace(/_/g, " ").toUpperCase();
+}
+
+function MarketMapPanel({ geoContext }: { geoContext: GeospatialMarketContext | null }) {
+  if (!geoContext) {
+    return (
+      <Card className="scada-panel border-white/5">
+        <CardContent className="p-5">
+          <p className="text-xs lcd-text text-muted-foreground">
+            Geospatial market context is loading...
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <RealisticMarketMap
+      geoContext={geoContext}
+      className="scada-panel border-white/5"
+    />
+  );
 }
 
 export default function Dashboard() {
@@ -1100,9 +1123,12 @@ export default function Dashboard() {
             </h2>
           </div>
 
-          <RealisticMarketMap
-            key={`${geoContext?.municipality_name ?? "loading"}-${geoContext?.business_subcategory ?? "business"}-${geoContext?.radius_km ?? radius[0]}-${geoContext?.center?.latitude ?? 0}-${geoContext?.center?.longitude ?? 0}`}
-            geoContext={geoContext}
+          <MarketMapPanel geoContext={geoContext} />
+
+          <ScenarioAIChat
+            municipalityName={municipalityName}
+            businessSubcategory={businessSubcategory}
+            radiusKm={radius[0]}
           />
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
