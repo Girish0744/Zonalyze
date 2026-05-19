@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
-from app.catalogs.business_subcategories import get_osm_tags_for_subcategory
+from app.catalogs.business_subcategories import get_business_profile_dict, get_osm_tags_for_subcategory
 
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -23,27 +24,238 @@ class OSMFetchResult:
     elements: List[Dict]
 
 
+@dataclass(frozen=True)
+class CompetitorRule:
+    """Business-specific relevance settings used by the universal matcher.
+
+    The matcher does not depend on one business such as Indian Grocery Store.
+    Every selected business goes through the same scoring pipeline:
+    1. OSM tag fit
+    2. business/name/tag keyword fit
+    3. rejection of unrelated nearby businesses
+    4. minimum relevance threshold
+    """
+
+    aliases: Tuple[str, ...] = ()
+    strong_tags: Tuple[Tuple[str, str], ...] = ()
+    weak_tags: Tuple[Tuple[str, str], ...] = ()
+    reject_terms: Tuple[str, ...] = ()
+    min_score: int = 45
+    weak_tag_requires_alias: bool = True
+
+
 _CACHE: Dict[str, Tuple[float, OSMFetchResult]] = {}
 
 
-BUSINESS_OSM_TAGS: Dict[str, List[Tuple[str, str]]] = {
-    "Coffee Shop": [("amenity", "cafe")],
-    "Cafe": [("amenity", "cafe")],
-    "Fast Food Restaurant": [("amenity", "fast_food")],
-    "Restaurant": [("amenity", "restaurant")],
-    "Indian Grocery Store": [("shop", "supermarket"), ("shop", "convenience"), ("shop", "greengrocer")],
-    "Grocery Store": [("shop", "supermarket"), ("shop", "convenience"), ("shop", "greengrocer")],
-    "Fitness Center": [("leisure", "fitness_centre"), ("amenity", "gym")],
-    "Gym": [("leisure", "fitness_centre"), ("amenity", "gym")],
-    "Hair Salon": [("shop", "hairdresser"), ("shop", "beauty")],
-    "Salon": [("shop", "hairdresser"), ("shop", "beauty")],
-    "Pharmacy": [("amenity", "pharmacy"), ("shop", "chemist")],
-    "Bakery": [("shop", "bakery")],
-    "Convenience Store": [("shop", "convenience")],
-    "Retail Clothing Store": [("shop", "clothes")],
-    "Dental Clinic": [("amenity", "dentist")],
-    "Tutoring Center": [("amenity", "school"), ("office", "educational_institution")],
-    "Laundromat": [("shop", "laundry"), ("amenity", "laundry")],
+# These terms are intentionally broad. They are used only for text normalization,
+# not as business filters.
+GENERIC_BUSINESS_WORDS = {
+    "a", "an", "and", "the", "of", "for", "to", "in", "on", "at", "by", "with",
+    "store", "shop", "center", "centre", "business", "service", "services", "retail",
+    "clinic", "restaurant", "cafe", "coffee", "food", "market", "mart", "studio",
+}
+
+COMMON_UNRELATED_FOR_FOOD_RETAIL = (
+    "circle k", "7 eleven", "7-eleven", "esso", "shell", "petro", "canadian tire gas",
+    "gas station", "fuel", "hasty market", "daisy mart", "dollarama", "dollar tree",
+)
+
+COMMON_UNRELATED_FOR_RESTAURANTS = (
+    "gas station", "fuel", "convenience", "grocery", "supermarket", "pharmacy", "dollarama",
+)
+
+
+# Universal competitor rule table for the subcategories currently supported by Zonalyze.
+# This is not a one-off filter. It gives every business type its own definition of what a
+# close competitor looks like, while the matching algorithm remains the same for all types.
+COMPETITOR_RULES: Dict[str, CompetitorRule] = {
+    "indian grocery store": CompetitorRule(
+        aliases=("indian", "india", "desi", "punjabi", "south asian", "asian", "spice", "spices", "masala", "halal", "bazaar", "mandi"),
+        strong_tags=(("shop", "spices"), ("shop", "greengrocer"), ("shop", "supermarket")),
+        weak_tags=(("shop", "convenience"),),
+        reject_terms=COMMON_UNRELATED_FOR_FOOD_RETAIL,
+        min_score=55,
+    ),
+    "chinese grocery store": CompetitorRule(
+        aliases=("chinese", "china", "asian", "oriental", "t&t", "seafood", "supermarket", "grocery", "foods"),
+        strong_tags=(("shop", "supermarket"), ("shop", "greengrocer")),
+        weak_tags=(("shop", "convenience"),),
+        reject_terms=COMMON_UNRELATED_FOR_FOOD_RETAIL,
+        min_score=55,
+    ),
+    "halal grocery store": CompetitorRule(
+        aliases=("halal", "middle eastern", "arab", "islamic", "butcher", "meat", "grocery", "foods", "market"),
+        strong_tags=(("shop", "butcher"), ("shop", "supermarket"), ("shop", "greengrocer")),
+        weak_tags=(("shop", "convenience"),),
+        reject_terms=COMMON_UNRELATED_FOR_FOOD_RETAIL,
+        min_score=55,
+    ),
+    "general grocery store": CompetitorRule(
+        aliases=("grocery", "grocer", "supermarket", "food basics", "sobeys", "zehrs", "freshco", "no frills", "market", "foods"),
+        strong_tags=(("shop", "supermarket"), ("shop", "greengrocer")),
+        weak_tags=(("shop", "convenience"),),
+        reject_terms=("gas station", "fuel", "esso", "shell", "circle k", "7-eleven"),
+        min_score=48,
+    ),
+    "convenience store": CompetitorRule(
+        aliases=("convenience", "variety", "corner store", "circle k", "7-eleven", "hasty market", "daisy mart"),
+        strong_tags=(("shop", "convenience"),),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "coffee shop / cafe": CompetitorRule(
+        aliases=("coffee", "cafe", "café", "espresso", "latte", "starbucks", "tim hortons", "second cup"),
+        strong_tags=(("amenity", "cafe"),),
+        weak_tags=(),
+        reject_terms=("restaurant", "bar", "pub", "gas station"),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "bubble tea shop": CompetitorRule(
+        aliases=("bubble tea", "boba", "milk tea", "tea", "chatime", "coco", "gong cha", "the alley"),
+        strong_tags=(("shop", "tea"),),
+        weak_tags=(("amenity", "cafe"),),
+        reject_terms=("coffee", "tim hortons", "starbucks", "restaurant", "bar"),
+        min_score=55,
+    ),
+    "fast food restaurant": CompetitorRule(
+        aliases=("fast food", "burger", "fried chicken", "mcdonald", "wendy", "subway", "kfc", "popeyes", "harvey", "a&w", "taco bell"),
+        strong_tags=(("amenity", "fast_food"),),
+        weak_tags=(),
+        reject_terms=("grocery", "supermarket", "pharmacy"),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "casual restaurant": CompetitorRule(
+        aliases=("restaurant", "grill", "kitchen", "diner", "bistro", "bar", "pub", "eatery", "food"),
+        strong_tags=(("amenity", "restaurant"),),
+        weak_tags=(),
+        reject_terms=("grocery", "supermarket", "pharmacy", "gas station"),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "pizza shop": CompetitorRule(
+        aliases=("pizza", "pizzeria", "domino", "pizza pizza", "little caesars", "papa john", "241 pizza"),
+        strong_tags=(),
+        weak_tags=(("amenity", "restaurant"), ("amenity", "fast_food")),
+        reject_terms=COMMON_UNRELATED_FOR_RESTAURANTS,
+        min_score=55,
+    ),
+    "bakery": CompetitorRule(
+        aliases=("bakery", "bake", "bread", "cakes", "pastry", "patisserie", "dessert"),
+        strong_tags=(("shop", "bakery"),),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "fitness center": CompetitorRule(
+        aliases=("fitness", "gym", "health club", "workout", "goodlife", "fit4less", "planet fitness", "anytime fitness"),
+        strong_tags=(("leisure", "fitness_centre"), ("amenity", "gym")),
+        weak_tags=(),
+        reject_terms=("playground", "park", "school"),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "yoga studio": CompetitorRule(
+        aliases=("yoga", "pilates", "hot yoga", "wellness studio"),
+        strong_tags=(("sport", "yoga"),),
+        weak_tags=(("leisure", "fitness_centre"),),
+        reject_terms=("gym", "crossfit", "boxing", "martial arts"),
+        min_score=55,
+    ),
+    "physiotherapy clinic": CompetitorRule(
+        aliases=("physio", "physiotherapy", "physical therapy", "rehab", "rehabilitation", "sports medicine"),
+        strong_tags=(("healthcare", "physiotherapist"),),
+        weak_tags=(("amenity", "clinic"),),
+        reject_terms=("dental", "dentist", "pharmacy", "walk-in", "family doctor", "veterinary"),
+        min_score=55,
+    ),
+    "pharmacy": CompetitorRule(
+        aliases=("pharmacy", "drug mart", "chemist", "shoppers", "rexall", "pharmasave", "guardian"),
+        strong_tags=(("amenity", "pharmacy"), ("shop", "chemist")),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "dental clinic": CompetitorRule(
+        aliases=("dental", "dentist", "orthodont", "smile", "teeth"),
+        strong_tags=(("amenity", "dentist"),),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "tutoring center": CompetitorRule(
+        aliases=("tutor", "tutoring", "learning centre", "learning center", "education centre", "education center", "kumon", "sylvan", "mathnasium"),
+        strong_tags=(("office", "educational_institution"),),
+        weak_tags=(("amenity", "school"),),
+        reject_terms=("public school", "catholic school", "high school", "elementary", "college", "university"),
+        min_score=58,
+    ),
+    "daycare center": CompetitorRule(
+        aliases=("daycare", "childcare", "child care", "early learning", "nursery", "preschool", "kindergarten", "montessori"),
+        strong_tags=(("amenity", "kindergarten"), ("amenity", "childcare")),
+        weak_tags=(),
+        min_score=38,
+        weak_tag_requires_alias=False,
+    ),
+    "hair salon": CompetitorRule(
+        aliases=("hair", "salon", "beauty salon", "hairdresser", "hairstyling", "cuts", "colour", "color"),
+        strong_tags=(("shop", "hairdresser"),),
+        weak_tags=(("shop", "beauty"),),
+        reject_terms=("nail", "spa", "cosmetics", "barber"),
+        min_score=45,
+    ),
+    "nail salon": CompetitorRule(
+        aliases=("nail", "nails", "manicure", "pedicure", "spa", "beauty bar"),
+        strong_tags=(),
+        weak_tags=(("shop", "beauty"), ("shop", "cosmetics")),
+        reject_terms=("hair", "barber", "eyebrow", "lash"),
+        min_score=55,
+    ),
+    "barbershop": CompetitorRule(
+        aliases=("barber", "barbershop", "barber shop", "men's hair", "mens hair", "cuts"),
+        strong_tags=(),
+        weak_tags=(("shop", "hairdresser"),),
+        reject_terms=("nail", "spa", "beauty", "salon"),
+        min_score=55,
+    ),
+    "laundromat": CompetitorRule(
+        aliases=("laundry", "laundromat", "coin laundry", "dry cleaner", "wash", "cleaners"),
+        strong_tags=(("shop", "laundry"), ("amenity", "laundry")),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "clothing boutique": CompetitorRule(
+        aliases=("clothing", "clothes", "fashion", "boutique", "apparel", "wear", "outfit", "dress"),
+        strong_tags=(("shop", "clothes"),),
+        weak_tags=(),
+        reject_terms=("thrift", "donation", "laundry", "tailor"),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "pet supply store": CompetitorRule(
+        aliases=("pet", "pets", "pet food", "pet supply", "pet supplies", "pet valu", "petsmart"),
+        strong_tags=(("shop", "pet"),),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
+    "electronics repair shop": CompetitorRule(
+        aliases=("electronics repair", "phone repair", "cell repair", "computer repair", "device repair", "mobile repair", "tech repair", "repair"),
+        strong_tags=(("craft", "electronics_repair"),),
+        weak_tags=(("shop", "electronics"),),
+        reject_terms=("best buy", "the source", "staples", "retail", "appliance"),
+        min_score=55,
+    ),
+    "florist": CompetitorRule(
+        aliases=("florist", "flowers", "flower", "floral", "bouquet"),
+        strong_tags=(("shop", "florist"),),
+        weak_tags=(),
+        min_score=35,
+        weak_tag_requires_alias=False,
+    ),
 }
 
 TRANSIT_TAGS: List[Tuple[str, str]] = [
@@ -71,11 +283,134 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _clean_text(value: object) -> str:
+    text = str(value or "").lower()
+    text = text.replace("&", " and ")
+    text = re.sub(r"[^a-z0-9+]+", " ", text)
+    return " ".join(text.split())
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    clean_phrase = _clean_text(phrase)
+    if not clean_phrase:
+        return False
+    return clean_phrase in text
+
+
+def _subcategory_tokens(business_subcategory: str) -> Tuple[str, ...]:
+    tokens = []
+    for token in _clean_text(business_subcategory).split():
+        if token not in GENERIC_BUSINESS_WORDS and len(token) >= 3:
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def _tag_pair_matches(tags: Dict[str, object], pair: Tuple[str, str]) -> bool:
+    key, expected = pair
+    actual = _clean_text(tags.get(key))
+    return actual == _clean_text(expected)
+
+
+def _all_searchable_text(item: Dict) -> str:
+    tags = item.get("tags", {}) or {}
+    useful_values = [
+        item.get("name"),
+        tags.get("name"),
+        tags.get("brand"),
+        tags.get("operator"),
+        tags.get("shop"),
+        tags.get("amenity"),
+        tags.get("leisure"),
+        tags.get("office"),
+        tags.get("healthcare"),
+        tags.get("craft"),
+        tags.get("sport"),
+        tags.get("cuisine"),
+        tags.get("description"),
+        tags.get("alt_name"),
+        tags.get("official_name"),
+        tags.get("keyword"),
+    ]
+    return _clean_text(" ".join(str(value or "") for value in useful_values))
+
+
+def _default_rule_for_subcategory(business_subcategory: str) -> CompetitorRule:
+    tags = tuple(get_osm_tags_for_subcategory(business_subcategory))
+    tokens = _subcategory_tokens(business_subcategory)
+    return CompetitorRule(
+        aliases=tokens,
+        strong_tags=tags,
+        weak_tags=(),
+        reject_terms=(),
+        min_score=40,
+        weak_tag_requires_alias=False,
+    )
+
+
+def _rule_for_subcategory(business_subcategory: str) -> CompetitorRule:
+    key = _clean_text(business_subcategory)
+    return COMPETITOR_RULES.get(key) or _default_rule_for_subcategory(business_subcategory)
+
+
+def _competitor_relevance_score(item: Dict, business_subcategory: str) -> Tuple[int, List[str]]:
+    rule = _rule_for_subcategory(business_subcategory)
+    tags = item.get("tags", {}) or {}
+    text = _all_searchable_text(item)
+    reasons: List[str] = []
+    score = 0
+
+    strong_tag_hit = any(_tag_pair_matches(tags, pair) for pair in rule.strong_tags)
+    weak_tag_hit = any(_tag_pair_matches(tags, pair) for pair in rule.weak_tags)
+    alias_hits = [alias for alias in rule.aliases if _contains_phrase(text, alias)]
+    token_hits = [token for token in _subcategory_tokens(business_subcategory) if _contains_phrase(text, token)]
+    reject_hits = [term for term in rule.reject_terms if _contains_phrase(text, term)]
+
+    if strong_tag_hit:
+        score += 45
+        reasons.append("matched strong OSM business tag")
+
+    if weak_tag_hit:
+        score += 22
+        reasons.append("matched broad OSM business tag")
+
+    if alias_hits:
+        score += min(45, 20 + len(alias_hits) * 8)
+        reasons.append(f"matched business terms: {', '.join(alias_hits[:3])}")
+
+    if token_hits:
+        score += min(20, len(token_hits) * 6)
+        reasons.append(f"matched subcategory tokens: {', '.join(token_hits[:3])}")
+
+    # Cuisine/product/service-specific OSM tags are strong hints when present.
+    cuisine = _clean_text(tags.get("cuisine"))
+    if cuisine and any(_contains_phrase(cuisine, alias) for alias in rule.aliases):
+        score += 30
+        reasons.append("matched cuisine/service tag")
+
+    if reject_hits:
+        score -= 70
+        reasons.append(f"rejected unrelated terms: {', '.join(reject_hits[:3])}")
+
+    if weak_tag_hit and rule.weak_tag_requires_alias and not alias_hits and not token_hits:
+        score -= 45
+        reasons.append("broad tag without business-specific name/tag evidence")
+
+    return score, reasons
+
+
+def _is_relevant_competitor(item: Dict, business_subcategory: str) -> bool:
+    rule = _rule_for_subcategory(business_subcategory)
+    score, reasons = _competitor_relevance_score(item, business_subcategory)
+    item["relevance_score"] = score
+    item["relevance_reasons"] = reasons
+    return score >= rule.min_score
+
+
 def _tag_query(tags: List[Tuple[str, str]], lat: float, lon: float, radius_m: int) -> str:
     clauses = []
     for key, value in tags:
-        safe_key = key.replace('"', '')
-        safe_value = value.replace('"', '')
+        safe_key = key.replace('"', "")
+        safe_value = value.replace('"', "")
         clauses.append(f'node["{safe_key}"="{safe_value}"](around:{radius_m},{lat},{lon});')
         clauses.append(f'way["{safe_key}"="{safe_value}"](around:{radius_m},{lat},{lon});')
         clauses.append(f'relation["{safe_key}"="{safe_value}"](around:{radius_m},{lat},{lon});')
@@ -112,7 +447,7 @@ def _fetch_overpass(query: str, cache_key: str) -> OSMFetchResult:
             payload = json.loads(response.read().decode("utf-8"))
         result = OSMFetchResult(
             status="live_osm",
-            note="OpenStreetMap data retrieved through the public Overpass API. Results depend on OSM coverage and public API availability.",
+            note="OpenStreetMap data retrieved through the public Overpass API. Competitor results are filtered by Zonalyze relevance scoring before display.",
             elements=payload.get("elements", []),
         )
     except Exception as exc:
@@ -154,6 +489,17 @@ def _normalize_element(element: Dict, center_lat: float, center_lon: float, cate
     }
 
 
+def _dedupe_tags(tags: Iterable[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    seen = set()
+    unique: List[Tuple[str, str]] = []
+    for key, value in tags:
+        pair = (str(key), str(value))
+        if pair not in seen:
+            seen.add(pair)
+            unique.append(pair)
+    return unique
+
+
 def fetch_osm_competitors(
     business_subcategory: str,
     center_lat: float,
@@ -161,12 +507,18 @@ def fetch_osm_competitors(
     radius_km: float,
     limit: int = 60,
 ) -> OSMFetchResult:
-    tags = get_osm_tags_for_subcategory(business_subcategory)
-    query = build_overpass_query(tags, center_lat, center_lon, radius_km, limit=limit)
-    cache_key = f"competitors:{business_subcategory}:{center_lat:.4f}:{center_lon:.4f}:{radius_km}:{limit}"
+    catalog_tags = get_osm_tags_for_subcategory(business_subcategory)
+    rule = _rule_for_subcategory(business_subcategory)
+    query_tags = _dedupe_tags([*catalog_tags, *rule.strong_tags, *rule.weak_tags])
+
+    query = build_overpass_query(query_tags, center_lat, center_lon, radius_km, limit=max(limit, 80))
+    cache_key = f"competitors:v2:{business_subcategory}:{center_lat:.4f}:{center_lon:.4f}:{radius_km}:{limit}"
     result = _fetch_overpass(query, cache_key)
+
     normalized: List[Dict] = []
     seen = set()
+    raw_count = len(result.elements)
+
     for element in result.elements:
         item = _normalize_element(element, center_lat, center_lon, business_subcategory)
         if not item:
@@ -175,9 +527,22 @@ def fetch_osm_competitors(
         if key in seen:
             continue
         seen.add(key)
+
+        if result.status == "live_osm" and not _is_relevant_competitor(item, business_subcategory):
+            continue
+
         normalized.append(item)
-    normalized.sort(key=lambda row: row["distance_km"])
-    return OSMFetchResult(status=result.status, note=result.note, elements=normalized[:limit])
+
+    normalized.sort(key=lambda row: (-int(row.get("relevance_score", 0)), row["distance_km"]))
+
+    if result.status == "live_osm":
+        note = (
+            f"OpenStreetMap returned {raw_count} raw POIs. Zonalyze kept {len(normalized)} after universal competitor relevance scoring for '{business_subcategory}'."
+        )
+    else:
+        note = result.note
+
+    return OSMFetchResult(status=result.status, note=note, elements=normalized[:limit])
 
 
 def fetch_osm_transit(

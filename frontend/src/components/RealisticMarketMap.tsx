@@ -19,10 +19,28 @@ type MapPoint = {
   longitude: number;
   source?: string;
   score?: number;
+  address?: string;
+  category?: string;
 };
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isTransitMarker(type?: string): boolean {
+  return (type || "").toLowerCase().includes("transit");
+}
+
+function isCompetitorMarker(type?: string): boolean {
+  return (type || "").toLowerCase().includes("competitor");
+}
+
+function iconForMarker(marker: MapPoint) {
+  if (isTransitMarker(marker.type)) {
+    return createBusStopIcon(30);
+  }
+
+  return createPinIcon(markerColor(marker.type), isCompetitorMarker(marker.type) ? 30 : 32);
 }
 
 function getCenter(geoContext: GeospatialMarketContext): [number, number] {
@@ -64,6 +82,38 @@ function createPinIcon(color: string, size = 34) {
     iconSize: [size, size],
     iconAnchor: [size / 2, size],
     popupAnchor: [0, -size],
+  });
+}
+
+function createBusStopIcon(size = 30) {
+  return L.divIcon({
+    className: "zonalyze-bus-stop-icon",
+    html: `
+      <div style="
+        width:${size}px;
+        height:${size}px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        border-radius:999px;
+        background:#1a73e8;
+        border:2px solid white;
+        box-shadow:0 3px 8px rgba(0,0,0,.45);
+      ">
+        <svg width="${Math.round(size * 0.62)}" height="${Math.round(size * 0.62)}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="5" y="3" width="14" height="15" rx="3" fill="white"/>
+          <path d="M7.5 7.5H16.5" stroke="#1a73e8" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M7.5 11H16.5" stroke="#1a73e8" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="8.5" cy="15" r="1.2" fill="#1a73e8"/>
+          <circle cx="15.5" cy="15" r="1.2" fill="#1a73e8"/>
+          <path d="M8 19.5H10" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M14 19.5H16" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
   });
 }
 
@@ -132,8 +182,10 @@ function normalizeMarkers(geoContext: GeospatialMarketContext): MapPoint[] {
         credibility: marker.credibility,
         latitude,
         longitude,
-        source: marker.source ?? marker.source_name,
+        source: marker.source ?? marker.source_name ?? marker.source_method,
         score: marker.score,
+        address: marker.address,
+        category: marker.category ?? marker.business_category ?? marker.subcategory,
       };
     })
     .filter(Boolean) as MapPoint[];
@@ -216,23 +268,16 @@ export default function RealisticMarketMap({ geoContext, className = "" }: Props
             <Marker
               key={marker.id}
               position={[marker.latitude, marker.longitude]}
-              icon={createPinIcon(markerColor(marker.type), marker.type === "competitor" ? 30 : 32)}
+              icon={iconForMarker(marker)}
             >
               <Popup>
-                <div style={{ minWidth: 200 }}>
+                <div style={{ minWidth: 220, lineHeight: 1.5 }}>
                   <strong>{marker.label}</strong>
-                  <br />
-                  Type: {marker.type}
-                  {marker.credibility ? (
+
+                  {isCompetitorMarker(marker.type) ? (
                     <>
                       <br />
-                      Credibility: {marker.credibility}
-                    </>
-                  ) : null}
-                  {marker.source ? (
-                    <>
-                      <br />
-                      Source: {marker.source}
+                      {marker.address ? marker.address : "Address not available"}
                     </>
                   ) : null}
                 </div>

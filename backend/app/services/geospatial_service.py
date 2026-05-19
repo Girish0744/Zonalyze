@@ -14,7 +14,6 @@ from app.services.competition_data_service import get_competition_observation
 from app.services.demand_data_service import get_demand_evidence
 from app.services.lease_cost_data_service import get_lease_cost_evidence
 from app.services.osm_service import (
-    fetch_osm_commercial_activity,
     fetch_osm_competitors,
     fetch_osm_transit,
 )
@@ -265,7 +264,6 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
         limit=60,
     )
     transit_result = fetch_osm_transit(center_lat=center_lat, center_lon=center_lng, radius_km=request.radius_km, limit=30)
-    commercial_result = fetch_osm_commercial_activity(center_lat=center_lat, center_lon=center_lng, radius_km=request.radius_km, limit=20)
 
     markers: List[MapMarker] = []
 
@@ -291,7 +289,11 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
             )
         )
 
-    if not markers:
+    # Only show proxy competitors when the live OSM competitor query fails.
+    # If OSM worked but the relevance filter found zero true competitors, showing
+    # fake competitor pins would mislead the user. In that case, the map should
+    # honestly show zero direct competitor markers.
+    if not markers and competitor_result.status != "live_osm":
         competitor_count = int(competition.observed_competitor_count if competition else 0)
         markers.extend(
             _fallback_competitor_markers(
@@ -327,48 +329,6 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
             )
         )
 
-    for index, poi in enumerate(commercial_result.elements[:12], start=1):
-        x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], request.radius_km)
-        markers.append(
-            MapMarker(
-                marker_id=f"osm-commercial-{index}-{poi.get('osm_id')}",
-                marker_type="commercial_activity",
-                label=poi.get("name") or "Commercial activity point",
-                latitude=round(float(poi["latitude"]), 6),
-                longitude=round(float(poi["longitude"]), 6),
-                x_offset_pct=round(x_pct, 2),
-                y_offset_pct=round(y_pct, 2),
-                intensity=float(demand.foot_traffic_proxy_index),
-                source_method="OpenStreetMap Overpass API",
-                credibility="medium" if commercial_result.status == "live_osm" else "limited",
-                osm_id=poi.get("osm_id"),
-                osm_type=poi.get("osm_type"),
-                category="Commercial activity",
-                address=poi.get("address"),
-                tags=poi.get("tags") or {},
-            )
-        )
-
-    # Lease listings are not publicly available in the current implementation.
-    # We still display a lease pressure marker as a clearly marked proxy at the municipality center edge.
-    lease_lat, lease_lng = _offset_coordinate(center_lat, center_lng, 34, 34, request.radius_km)
-    markers.append(
-        MapMarker(
-            marker_id="lease-pressure-proxy",
-            marker_type="lease_proxy",
-            label="Lease cost pressure proxy",
-            latitude=round(lease_lat, 6),
-            longitude=round(lease_lng, 6),
-            x_offset_pct=34,
-            y_offset_pct=34,
-            intensity=float(lease.rent_pressure_index),
-            source_method="lease evidence proxy catalog",
-            credibility=lease.credibility,
-            category="Lease proxy",
-            tags={},
-        )
-    )
-
     risk_index = min(100.0, max(0.0, (float(competition.competition_pressure_index if competition else 50) * 0.45) + (float(lease.rent_pressure_index) * 0.45) + ((100 - float(demand.demand_pressure_index)) * 0.10)))
     heatmap_cells = _build_heatmap_cells(
         center_lat=center_lat,
@@ -378,13 +338,13 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
         risk_index=risk_index,
     )
 
-    osm_statuses = {competitor_result.status, transit_result.status, commercial_result.status}
+    osm_statuses = {competitor_result.status, transit_result.status}
     if "live_osm" in osm_statuses:
         osm_query_status = "live_osm_partial" if "fallback_proxy" in osm_statuses else "live_osm"
     else:
         osm_query_status = "fallback_proxy"
 
-    osm_query_note = " ".join(sorted({competitor_result.note, transit_result.note, commercial_result.note}))
+    osm_query_note = " ".join(sorted({competitor_result.note, transit_result.note}))
 
     return GeospatialMarketContext(
         municipality_name=request.municipality_name,
@@ -394,12 +354,12 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
         map_method="leaflet_osm_overpass_plus_evidence_layers",
         map_credibility="medium" if osm_query_status.startswith("live_osm") else "limited",
         coverage_note=(
-            "The radius is dynamically centered on the selected municipality using cached coordinates or OpenStreetMap geocoding. Competitor, transit, and commercial activity markers use live OpenStreetMap coordinates when available."
+            "The radius is dynamically centered on the selected municipality using cached coordinates or OpenStreetMap geocoding. Competitor and transit markers use live OpenStreetMap coordinates when available."
             if not geocode_fallback_used
             else "The selected municipality could not be geocoded online, so a temporary Ontario fallback center is shown. Check internet access or cache this municipality coordinate."
         ),
         evidence_note=(
-            "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. Lease cost remains a proxy until real commercial listing data is added."
+            "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. The map currently displays direct competitor and transit-access evidence only."
         ),
         radius_label=f"{request.radius_km} km analysis radius",
         competition_pressure_index=float(competition.competition_pressure_index if competition else 0),
@@ -408,7 +368,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
         marker_count=len(markers),
         real_competitor_count=len([m for m in markers if m.marker_type == "competitor"]),
         transit_marker_count=len([m for m in markers if m.marker_type == "transit"]),
-        lease_marker_count=len([m for m in markers if m.marker_type == "lease_proxy"]),
+        lease_marker_count=0,
         markers=markers,
         heatmap_cells=heatmap_cells,
         osm_query_status=osm_query_status,
