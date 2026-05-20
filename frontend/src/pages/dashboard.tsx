@@ -52,7 +52,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 
-import RealisticMarketMap from "@/components/RealisticMarketMap";
+import MapboxMarketMap from "@/components/MapboxMarketMap";
 import ScenarioAIChat from "@/components/ScenarioAIChat";
 
 import {
@@ -211,7 +211,7 @@ function MarketMapPanel({ geoContext }: { geoContext: GeospatialMarketContext | 
   }
 
   return (
-    <RealisticMarketMap
+    <MapboxMarketMap
       geoContext={geoContext}
       className="scada-panel border-white/5"
     />
