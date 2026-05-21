@@ -22,6 +22,7 @@ class MapMarker(BaseModel):
     osm_type: Optional[str] = None
     category: Optional[str] = None
     address: Optional[str] = None
+    address_source: Optional[str] = None
     tags: dict = {}
 
 

@@ -475,6 +475,7 @@ def _normalize_element(element: Dict, center_lat: float, center_lon: float, cate
         tags.get("addr:city"),
     ]
     address = " ".join([part for part in address_parts if part]) or None
+    address_source = "openstreetmap_tags" if address else None
     distance_km = haversine_km(center_lat, center_lon, float(lat), float(lon))
     return {
         "osm_id": str(element.get("id")),
@@ -484,6 +485,7 @@ def _normalize_element(element: Dict, center_lat: float, center_lon: float, cate
         "longitude": float(lon),
         "category": category,
         "address": address,
+        "address_source": address_source,
         "distance_km": round(distance_km, 3),
         "tags": tags,
     }

@@ -17,6 +17,7 @@ from app.services.osm_service import (
     fetch_osm_competitors,
     fetch_osm_transit,
 )
+from app.services.mapbox_geocoding_service import enrich_missing_addresses
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -265,9 +266,18 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
     )
     transit_result = fetch_osm_transit(center_lat=center_lat, center_lon=center_lng, radius_km=request.radius_km, limit=30)
 
+    # OpenStreetMap POIs often have coordinates and names but no addr:* tags.
+    # To avoid showing "Address not available" for real competitor markers,
+    # Zonalyze optionally uses Mapbox reverse geocoding as a display-only fallback.
+    # This does not change competitor matching, ML prediction, or map marker selection.
+    competitor_pois = enrich_missing_addresses(
+        competitor_result.elements,
+        max_requests=20,
+    )
+
     markers: List[MapMarker] = []
 
-    for index, poi in enumerate(competitor_result.elements[:35], start=1):
+    for index, poi in enumerate(competitor_pois[:35], start=1):
         x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], request.radius_km)
         markers.append(
             MapMarker(
@@ -285,6 +295,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
                 osm_type=poi.get("osm_type"),
                 category=poi.get("category"),
                 address=poi.get("address"),
+                address_source=poi.get("address_source"),
                 tags=poi.get("tags") or {},
             )
         )
@@ -325,6 +336,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
                 osm_type=poi.get("osm_type"),
                 category="Transit / mobility",
                 address=poi.get("address"),
+                address_source=poi.get("address_source"),
                 tags=poi.get("tags") or {},
             )
         )
@@ -359,7 +371,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
             else "The selected municipality could not be geocoded online, so a temporary Ontario fallback center is shown. Check internet access or cache this municipality coordinate."
         ),
         evidence_note=(
-            "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. The map currently displays direct competitor and transit-access evidence only."
+            "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. The map currently displays direct competitor and transit-access evidence only. Competitor addresses use OpenStreetMap address tags first, with optional Mapbox reverse-geocoding fallback when a Mapbox token is configured."
         ),
         radius_label=f"{request.radius_km} km analysis radius",
         competition_pressure_index=float(competition.competition_pressure_index if competition else 0),

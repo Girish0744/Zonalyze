@@ -20,3 +20,7 @@ ENCODED_DB_PASSWORD = quote_plus(DB_PASSWORD)
 DATABASE_URL = (
     f"postgresql://{DB_USER}:{ENCODED_DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
+# Mapbox token is optional. It is only used as a fallback to reverse-geocode
+# competitor marker addresses when OpenStreetMap does not provide addr:* tags.
+# Keep the real token in backend/.env and do not commit it to GitHub.
+MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN", "")
