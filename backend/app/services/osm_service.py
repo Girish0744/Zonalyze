@@ -593,3 +593,121 @@ def fetch_osm_commercial_activity(
         normalized.append(item)
     normalized.sort(key=lambda row: row["distance_km"])
     return OSMFetchResult(status=result.status, note=result.note, elements=normalized[:limit])
+
+
+def _resolved_tag_to_tuple(tag: object) -> Tuple[str, str, str, float]:
+    """Convert a resolved AI tag object/dict into a generic Overpass tag tuple.
+
+    This performs no business-specific mapping. It only reads the already resolved
+    OSM key/value/role/confidence returned by the dynamic business resolver.
+    """
+    if isinstance(tag, dict):
+        key = str(tag.get("key") or "").strip()
+        value = str(tag.get("value") or "").strip()
+        role = str(tag.get("tag_role") or "primary").strip().lower()
+        confidence_raw = tag.get("confidence", 0.5)
+    else:
+        key = str(getattr(tag, "key", "") or "").strip()
+        value = str(getattr(tag, "value", "") or "").strip()
+        role = str(getattr(tag, "tag_role", "primary") or "primary").strip().lower()
+        confidence_raw = getattr(tag, "confidence", 0.5)
+
+    try:
+        confidence = float(confidence_raw)
+    except Exception:
+        confidence = 0.5
+
+    return key, value, role, max(0.0, min(1.0, confidence))
+
+
+def _select_query_tags_from_resolved_tags(resolved_tags: Iterable[object]) -> List[Tuple[str, str]]:
+    """Select tags for competitor/POI lookup from AI-resolved OSM tags.
+
+    The selection is role-based and generic. Brand/name/operator tags are useful
+    as metadata, but using only brand filters can hide ordinary competitors. For
+    market evidence, primary/secondary/category-style tags are preferred. If the
+    AI only returns brand/name/operator tags, the function uses those tags rather
+    than inventing category tags.
+    """
+    parsed = []
+    for tag in resolved_tags or []:
+        key, value, role, confidence = _resolved_tag_to_tuple(tag)
+        if not key or not value:
+            continue
+        parsed.append((key, value, role, confidence))
+
+    category_like_roles = {"primary", "secondary", "attribute", "specialty", "other"}
+    category_tags = [
+        (key, value)
+        for key, value, role, confidence in parsed
+        if role in category_like_roles and key not in {"brand", "name", "operator"}
+    ]
+
+    if category_tags:
+        return _dedupe_tags(category_tags)
+
+    # No category-like tags were available. Use the resolved tags as-is instead
+    # of guessing replacements. This keeps the no-hardcoded-business-mapping rule.
+    return _dedupe_tags([(key, value) for key, value, role, confidence in parsed])
+
+
+def fetch_osm_pois_by_resolved_tags(
+    *,
+    resolved_tags: Iterable[object],
+    business_label: str,
+    center_lat: float,
+    center_lon: float,
+    radius_km: float,
+    limit: int = 60,
+) -> OSMFetchResult:
+    """Fetch OSM POIs using AI-resolved tags instead of hardcoded category rules.
+
+    This is the Step 27B dynamic path. It intentionally does not use
+    COMPETITOR_RULES, business catalog mappings, keyword rules, or brand lists.
+    It trusts only validated tags already returned by the business resolver.
+    """
+    query_tags = _select_query_tags_from_resolved_tags(resolved_tags)
+
+    if not query_tags:
+        return OSMFetchResult(
+            status="business_resolution_needs_review",
+            note=(
+                "No validated dynamic OSM tags were available, so Zonalyze did not run "
+                "a competitor/POI query for this free-text business idea."
+            ),
+            elements=[],
+        )
+
+    query = build_overpass_query(query_tags, center_lat, center_lon, radius_km, limit=max(limit, 80))
+    tag_key = ";".join([f"{key}={value}" for key, value in query_tags])
+    cache_key = f"dynamic-business-tags:v1:{tag_key}:{center_lat:.4f}:{center_lon:.4f}:{radius_km}:{limit}"
+    result = _fetch_overpass(query, cache_key)
+
+    normalized: List[Dict] = []
+    seen = set()
+    raw_count = len(result.elements)
+
+    for element in result.elements:
+        item = _normalize_element(element, center_lat, center_lon, business_label or "Resolved business POI")
+        if not item:
+            continue
+        key = (item["osm_type"], item["osm_id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        item["relevance_score"] = None
+        item["relevance_reasons"] = ["Matched AI-resolved validated OSM tag query."]
+        normalized.append(item)
+
+    normalized.sort(key=lambda row: row["distance_km"])
+
+    if result.status == "live_osm":
+        note = (
+            f"OpenStreetMap returned {raw_count} raw POIs using AI-resolved OSM tags "
+            f"for '{business_label}'. Zonalyze displayed {len(normalized)} nearby POIs "
+            "without hardcoded business-category relevance rules."
+        )
+    else:
+        note = result.note
+
+    return OSMFetchResult(status=result.status, note=note, elements=normalized[:limit])

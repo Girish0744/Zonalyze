@@ -3,21 +3,33 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import requests
 
 from app.ml.scenario_feature_builder import build_prediction_features
-from app.schemas.geospatial import GeoCoordinate, GeospatialMarketContext, HeatmapCell, MapMarker
+from app.schemas.geospatial import (
+    BusinessResolutionMapContext,
+    DynamicOSMTagContext,
+    GeoCoordinate,
+    GeospatialMarketContext,
+    GeospatialMarketRequest,
+    HeatmapCell,
+    MapMarker,
+)
 from app.schemas.scenario import AnalyzeScenarioRequest
 from app.services.competition_data_service import get_competition_observation
 from app.services.demand_data_service import get_demand_evidence
 from app.services.lease_cost_data_service import get_lease_cost_evidence
 from app.services.osm_service import (
+    OSMFetchResult,
     fetch_osm_competitors,
+    fetch_osm_pois_by_resolved_tags,
     fetch_osm_transit,
 )
 from app.services.mapbox_geocoding_service import enrich_missing_addresses
+from app.schemas.business_resolver import BusinessResolveRequest
+from app.services.business_resolver_service import resolve_business_query
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -228,48 +240,163 @@ def _build_heatmap_cells(
     return cells
 
 
-def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> GeospatialMarketContext:
-    features = build_prediction_features(
-        municipality_name=request.municipality_name,
-        business_subcategory=request.business_subcategory,
-        radius_km=request.radius_km,
+
+def _get_request_value(request: Any, field_name: str, default: Any = None) -> Any:
+    return getattr(request, field_name, default)
+
+
+def _business_resolution_to_map_context(resolution) -> BusinessResolutionMapContext:
+    return BusinessResolutionMapContext(
+        status=resolution.status,
+        input_text=resolution.input_text,
+        normalized_business_name=resolution.normalized_business_name,
+        primary_category=resolution.primary_category,
+        secondary_categories=resolution.secondary_categories,
+        brand_terms=resolution.brand_terms,
+        specialty_terms=resolution.specialty_terms,
+        osm_tags=[
+            DynamicOSMTagContext(
+                key=tag.key,
+                value=tag.value,
+                confidence=tag.confidence,
+                tag_role=tag.tag_role,
+                reason=tag.reason,
+            )
+            for tag in resolution.osm_tags
+        ],
+        resolution_confidence=resolution.resolution_confidence,
+        confidence_score=resolution.confidence_score,
+        source_method=resolution.source_method,
+        raw_ai_available=resolution.raw_ai_available,
+        warnings=resolution.warnings,
+        raw_ai_error=resolution.raw_ai_error,
     )
-    population = float(features.get("population_2021", 0) or 0)
-    center_lat, center_lng = _center_for_municipality(request.municipality_name)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        number = float(value)
+        if not math.isfinite(number):
+            return default
+        return number
+    except Exception:
+        return default
+
+
+def build_geospatial_market_context(request: GeospatialMarketRequest | AnalyzeScenarioRequest) -> GeospatialMarketContext:
+    """Build market-map evidence with optional dynamic business-query OSM tags.
+
+    Backward compatibility:
+    - Existing calls with business_subcategory continue to use the old catalog/evidence path.
+
+    Step 27B dynamic path:
+    - If business_query is supplied, the service resolves it through the dynamic business
+      resolver and uses the validated AI-generated OSM tags for competitor/POI markers.
+    - No hardcoded business-to-OSM mapping is added here.
+    - If resolution fails, the map stays alive but returns no invented competitor markers.
+    """
+    municipality_name = _normalize_place_name(_get_request_value(request, "municipality_name", ""))
+    radius_km = float(_get_request_value(request, "radius_km", 5) or 5)
+    business_subcategory_raw = _get_request_value(request, "business_subcategory", None)
+    business_query_raw = _get_request_value(request, "business_query", None)
+    model = _get_request_value(request, "model", None)
+
+    business_subcategory = _normalize_place_name(business_subcategory_raw or "")
+    business_query = _normalize_place_name(business_query_raw or "")
+
+    business_resolution_context: Optional[BusinessResolutionMapContext] = None
+    resolved_business_name: Optional[str] = None
+    dynamic_resolution = None
+
+    if business_query:
+        dynamic_resolution = resolve_business_query(
+            BusinessResolveRequest(
+                business_query=business_query,
+                municipality_name=municipality_name,
+                model=model,
+            )
+        )
+        business_resolution_context = _business_resolution_to_map_context(dynamic_resolution)
+        if dynamic_resolution.status == "resolved":
+            resolved_business_name = dynamic_resolution.normalized_business_name or business_query
+
+    display_business_name = resolved_business_name or business_subcategory or business_query or "Unresolved business idea"
+    analysis_business_subcategory = business_subcategory or display_business_name
+
+    features: Dict[str, Any] = {}
+    competition = None
+    demand = None
+    lease = None
+
+    try:
+        features = build_prediction_features(
+            municipality_name=municipality_name,
+            business_subcategory=analysis_business_subcategory,
+            radius_km=radius_km,
+        )
+        population = float(features.get("population_2021", 0) or 0)
+        competition = get_competition_observation(
+            municipality_name=municipality_name,
+            business_subcategory=analysis_business_subcategory,
+            radius_km=radius_km,
+            population=population,
+        )
+        demand = get_demand_evidence(
+            municipality_name=municipality_name,
+            business_subcategory=analysis_business_subcategory,
+            radius_km=radius_km,
+            features=features,
+        )
+        lease = get_lease_cost_evidence(
+            municipality_name=municipality_name,
+            business_subcategory=analysis_business_subcategory,
+            radius_km=radius_km,
+            features=features,
+        )
+    except Exception:
+        # Dynamic free-text businesses may not exist in the current model/catalog.
+        # We do not fake financial/demand/lease evidence here. The map can still
+        # show OSM POIs from resolved tags, but confidence stays limited.
+        features = {}
+        competition = None
+        demand = None
+        lease = None
+
+    center_lat, center_lng = _center_for_municipality(municipality_name)
     geocode_fallback_used = (round(center_lat, 4), round(center_lng, 4)) == (44.0000, -79.5000)
 
-    competition = get_competition_observation(
-        municipality_name=request.municipality_name,
-        business_subcategory=request.business_subcategory,
-        radius_km=request.radius_km,
-        population=population,
-    )
-    demand = get_demand_evidence(
-        municipality_name=request.municipality_name,
-        business_subcategory=request.business_subcategory,
-        radius_km=request.radius_km,
-        features=features,
-    )
-    lease = get_lease_cost_evidence(
-        municipality_name=request.municipality_name,
-        business_subcategory=request.business_subcategory,
-        radius_km=request.radius_km,
-        features=features,
-    )
+    if dynamic_resolution is not None:
+        if dynamic_resolution.status == "resolved" and dynamic_resolution.osm_tags:
+            competitor_result = fetch_osm_pois_by_resolved_tags(
+                resolved_tags=dynamic_resolution.osm_tags,
+                business_label=display_business_name,
+                center_lat=center_lat,
+                center_lon=center_lng,
+                radius_km=radius_km,
+                limit=60,
+            )
+        else:
+            competitor_result = OSMFetchResult(
+                status="business_resolution_needs_review",
+                note=(
+                    "Dynamic business resolution did not produce validated OSM tags. "
+                    "Zonalyze did not query or invent competitor markers for this business idea."
+                ),
+                elements=[],
+            )
+    else:
+        competitor_result = fetch_osm_competitors(
+            business_subcategory=analysis_business_subcategory,
+            center_lat=center_lat,
+            center_lon=center_lng,
+            radius_km=radius_km,
+            limit=60,
+        )
 
-    competitor_result = fetch_osm_competitors(
-        business_subcategory=request.business_subcategory,
-        center_lat=center_lat,
-        center_lon=center_lng,
-        radius_km=request.radius_km,
-        limit=60,
-    )
-    transit_result = fetch_osm_transit(center_lat=center_lat, center_lon=center_lng, radius_km=request.radius_km, limit=30)
+    transit_result = fetch_osm_transit(center_lat=center_lat, center_lon=center_lng, radius_km=radius_km, limit=30)
 
-    # OpenStreetMap POIs often have coordinates and names but no addr:* tags.
-    # To avoid showing "Address not available" for real competitor markers,
-    # Zonalyze optionally uses Mapbox reverse geocoding as a display-only fallback.
-    # This does not change competitor matching, ML prediction, or map marker selection.
     competitor_pois = enrich_missing_addresses(
         competitor_result.elements,
         max_requests=20,
@@ -278,18 +405,18 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
     markers: List[MapMarker] = []
 
     for index, poi in enumerate(competitor_pois[:35], start=1):
-        x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], request.radius_km)
+        x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], radius_km)
         markers.append(
             MapMarker(
                 marker_id=f"osm-competitor-{index}-{poi.get('osm_id')}",
                 marker_type="competitor",
-                label=poi.get("name") or f"Competitor {index}",
+                label=poi.get("name") or f"Market evidence POI {index}",
                 latitude=round(float(poi["latitude"]), 6),
                 longitude=round(float(poi["longitude"]), 6),
                 x_offset_pct=round(x_pct, 2),
                 y_offset_pct=round(y_pct, 2),
-                intensity=float(competition.competition_pressure_index if competition else 50),
-                source_method="OpenStreetMap Overpass API",
+                intensity=float(_safe_float(getattr(competition, "competition_pressure_index", None), 50.0)),
+                source_method="OpenStreetMap Overpass API using dynamic AI-resolved tags" if dynamic_resolution else "OpenStreetMap Overpass API",
                 credibility="medium" if competitor_result.status == "live_osm" else "limited",
                 osm_id=poi.get("osm_id"),
                 osm_type=poi.get("osm_type"),
@@ -300,26 +427,26 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
             )
         )
 
-    # Only show proxy competitors when the live OSM competitor query fails.
-    # If OSM worked but the relevance filter found zero true competitors, showing
-    # fake competitor pins would mislead the user. In that case, the map should
-    # honestly show zero direct competitor markers.
-    if not markers and competitor_result.status != "live_osm":
-        competitor_count = int(competition.observed_competitor_count if competition else 0)
+    # Only show proxy competitors for the old catalog-backed flow when live OSM fails.
+    # For dynamic free-text business_query, never invent proxy competitors if the
+    # AI resolver/Overpass path fails. This preserves the no-hardcoded behavior.
+    if not markers and dynamic_resolution is None and competitor_result.status != "live_osm":
+        competitor_count = int(getattr(competition, "observed_competitor_count", 0) or 0)
         markers.extend(
             _fallback_competitor_markers(
                 center_lat=center_lat,
                 center_lng=center_lng,
-                radius_km=request.radius_km,
+                radius_km=radius_km,
                 competitor_count=competitor_count,
-                intensity=float(competition.competition_pressure_index if competition else 50),
-                credibility=competition.credibility if competition else "limited",
+                intensity=float(_safe_float(getattr(competition, "competition_pressure_index", None), 50.0)),
+                credibility=getattr(competition, "credibility", "limited"),
                 source_method="fallback competition evidence catalog",
             )
         )
 
+    demand_transit_intensity = _safe_float(getattr(demand, "transit_access_proxy_index", None), 50.0)
     for index, poi in enumerate(transit_result.elements[:18], start=1):
-        x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], request.radius_km)
+        x_pct, y_pct = _xy_offsets_from_coordinate(center_lat, center_lng, poi["latitude"], poi["longitude"], radius_km)
         markers.append(
             MapMarker(
                 marker_id=f"osm-transit-{index}-{poi.get('osm_id')}",
@@ -329,7 +456,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
                 longitude=round(float(poi["longitude"]), 6),
                 x_offset_pct=round(x_pct, 2),
                 y_offset_pct=round(y_pct, 2),
-                intensity=float(demand.transit_access_proxy_index),
+                intensity=demand_transit_intensity,
                 source_method="OpenStreetMap Overpass API",
                 credibility="medium" if transit_result.status == "live_osm" else "limited",
                 osm_id=poi.get("osm_id"),
@@ -341,42 +468,59 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
             )
         )
 
-    risk_index = min(100.0, max(0.0, (float(competition.competition_pressure_index if competition else 50) * 0.45) + (float(lease.rent_pressure_index) * 0.45) + ((100 - float(demand.demand_pressure_index)) * 0.10)))
-    heatmap_cells = _build_heatmap_cells(
-        center_lat=center_lat,
-        center_lng=center_lng,
-        radius_km=request.radius_km,
-        demand_index=float(demand.demand_pressure_index),
-        risk_index=risk_index,
-    )
+    competition_index = _safe_float(getattr(competition, "competition_pressure_index", None), 0.0)
+    demand_index = _safe_float(getattr(demand, "demand_pressure_index", None), 0.0)
+    rent_index = _safe_float(getattr(lease, "rent_pressure_index", None), 0.0)
+
+    heatmap_cells: List[HeatmapCell] = []
+    if demand is not None and lease is not None:
+        risk_index = min(100.0, max(0.0, (competition_index * 0.45) + (rent_index * 0.45) + ((100 - demand_index) * 0.10)))
+        heatmap_cells = _build_heatmap_cells(
+            center_lat=center_lat,
+            center_lng=center_lng,
+            radius_km=radius_km,
+            demand_index=demand_index,
+            risk_index=risk_index,
+        )
 
     osm_statuses = {competitor_result.status, transit_result.status}
     if "live_osm" in osm_statuses:
-        osm_query_status = "live_osm_partial" if "fallback_proxy" in osm_statuses else "live_osm"
+        osm_query_status = "live_osm_partial" if any(status != "live_osm" for status in osm_statuses) else "live_osm"
+    elif "business_resolution_needs_review" in osm_statuses:
+        osm_query_status = "business_resolution_needs_review"
     else:
         osm_query_status = "fallback_proxy"
 
     osm_query_note = " ".join(sorted({competitor_result.note, transit_result.note}))
 
+    evidence_note = (
+        "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. "
+        "For free-text business ideas, competitor/POI markers come from validated OSM tags generated by the local AI business resolver. "
+        "If the resolver cannot produce validated tags, Zonalyze does not invent competitor markers."
+        if dynamic_resolution
+        else "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. The map currently displays direct competitor and transit-access evidence only. Competitor addresses use OpenStreetMap address tags first, with optional Mapbox reverse-geocoding fallback when a Mapbox token is configured."
+    )
+
     return GeospatialMarketContext(
-        municipality_name=request.municipality_name,
-        business_subcategory=request.business_subcategory,
-        radius_km=request.radius_km,
+        municipality_name=municipality_name,
+        business_subcategory=display_business_name,
+        business_query=business_query or None,
+        resolved_business_name=resolved_business_name,
+        business_resolution=business_resolution_context,
+        radius_km=radius_km,
         center=GeoCoordinate(latitude=center_lat, longitude=center_lng),
-        map_method="leaflet_osm_overpass_plus_evidence_layers",
+        map_method="mapbox_or_leaflet_osm_overpass_dynamic_business_tags" if dynamic_resolution else "mapbox_or_leaflet_osm_overpass_plus_evidence_layers",
         map_credibility="medium" if osm_query_status.startswith("live_osm") else "limited",
         coverage_note=(
             "The radius is dynamically centered on the selected municipality using cached coordinates or OpenStreetMap geocoding. Competitor and transit markers use live OpenStreetMap coordinates when available."
             if not geocode_fallback_used
             else "The selected municipality could not be geocoded online, so a temporary Ontario fallback center is shown. Check internet access or cache this municipality coordinate."
         ),
-        evidence_note=(
-            "OpenStreetMap points improve geospatial realism, but they do not guarantee complete market coverage. The map currently displays direct competitor and transit-access evidence only. Competitor addresses use OpenStreetMap address tags first, with optional Mapbox reverse-geocoding fallback when a Mapbox token is configured."
-        ),
-        radius_label=f"{request.radius_km} km analysis radius",
-        competition_pressure_index=float(competition.competition_pressure_index if competition else 0),
-        demand_pressure_index=float(demand.demand_pressure_index),
-        rent_pressure_index=float(lease.rent_pressure_index),
+        evidence_note=evidence_note,
+        radius_label=f"{radius_km:g} km analysis radius",
+        competition_pressure_index=competition_index,
+        demand_pressure_index=demand_index,
+        rent_pressure_index=rent_index,
         marker_count=len(markers),
         real_competitor_count=len([m for m in markers if m.marker_type == "competitor"]),
         transit_marker_count=len([m for m in markers if m.marker_type == "transit"]),
@@ -386,6 +530,7 @@ def build_geospatial_market_context(request: AnalyzeScenarioRequest) -> Geospati
         osm_query_status=osm_query_status,
         osm_query_note=osm_query_note,
         next_data_needed=[
+            "Overpass result-count coverage checks for resolved OSM tags",
             "Commercial lease listing coordinates and asking rents",
             "Observed pedestrian or mobility data for true foot-traffic intensity",
             "Municipal business licence data for more complete competitor coverage",

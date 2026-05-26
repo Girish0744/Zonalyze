@@ -1,5 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class GeoCoordinate(BaseModel):
@@ -23,7 +26,7 @@ class MapMarker(BaseModel):
     category: Optional[str] = None
     address: Optional[str] = None
     address_source: Optional[str] = None
-    tags: dict = {}
+    tags: Dict[str, Any] = Field(default_factory=dict)
 
 
 class HeatmapCell(BaseModel):
@@ -36,10 +39,60 @@ class HeatmapCell(BaseModel):
     source_method: str
 
 
+class DynamicOSMTagContext(BaseModel):
+    key: str
+    value: str
+    confidence: float
+    tag_role: str
+    reason: Optional[str] = None
+
+
+class BusinessResolutionMapContext(BaseModel):
+    status: str
+    input_text: str
+    normalized_business_name: str = ""
+    primary_category: str = ""
+    secondary_categories: List[str] = Field(default_factory=list)
+    brand_terms: List[str] = Field(default_factory=list)
+    specialty_terms: List[str] = Field(default_factory=list)
+    osm_tags: List[DynamicOSMTagContext] = Field(default_factory=list)
+    resolution_confidence: str
+    confidence_score: float
+    source_method: str
+    raw_ai_available: bool
+    warnings: List[str] = Field(default_factory=list)
+    raw_ai_error: Optional[str] = None
+
+
+class GeospatialMarketRequest(BaseModel):
+    municipality_name: str = Field(..., example="Kitchener")
+    radius_km: float = Field(..., ge=1, le=25, example=5)
+    business_subcategory: Optional[str] = Field(
+        default=None,
+        description="Existing catalog-backed business subcategory. Kept for backward compatibility and current prediction/evidence flow.",
+        example="Indian Grocery Store",
+    )
+    business_query: Optional[str] = Field(
+        default=None,
+        description="Free-text business idea. When supplied, Zonalyze resolves it with local AI and uses validated OSM tags for map evidence.",
+        example="Esso gas station with Circle K convenience store",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Optional local Ollama model override for dynamic business resolution.",
+    )
+
+    @model_validator(mode="after")
+    def require_business_input(self):
+        if not (self.business_subcategory or self.business_query):
+            raise ValueError("Provide either business_subcategory or business_query.")
+        return self
+
+
 class GeospatialMarketContext(BaseModel):
     municipality_name: str
     business_subcategory: str
-    radius_km: int
+    radius_km: float
     center: GeoCoordinate
     map_method: str
     map_credibility: str
@@ -58,3 +111,8 @@ class GeospatialMarketContext(BaseModel):
     osm_query_status: str
     osm_query_note: str
     next_data_needed: List[str]
+
+    # Step 27B dynamic business-resolution metadata.
+    business_query: Optional[str] = None
+    resolved_business_name: Optional[str] = None
+    business_resolution: Optional[BusinessResolutionMapContext] = None
