@@ -172,24 +172,24 @@ def analyze_scenario(request: AnalyzeScenarioRequest, db: Session) -> DashboardS
 
     return DashboardSummaryResponse(
         application_name="Zonalyze",
-        project_phase="Capstone Prototype - ML + Market Evidence Layer",
+        project_phase="Capstone Prototype - Trust-Aware Evidence Layer",
         municipality_name=request.municipality_name,
         business_subcategory=request.business_subcategory,
         radius_km=request.radius_km,
         people_location_packet=people_packet,
         competition_monitor=MonitorStatus(
-            name="Competition",
-            value=f"{competition_score:.1f}/100 competition pressure",
+            name="Competition Pressure Estimate",
+            value=f"{competition_score:.1f}/100 estimated competition pressure",
             indicator=competition_indicator,
         ),
         revenue_monitor=MonitorStatus(
-            name="Revenue",
-            value=f"${predicted_revenue:,.0f} estimated monthly net revenue",
+            name="Prototype Revenue Estimate",
+            value=f"${predicted_revenue:,.0f} prototype monthly net revenue estimate",
             indicator=revenue_indicator,
         ),
         risk_monitor=MonitorStatus(
-            name="Investment Risk",
-            value=f"{predicted_risk.title()} risk",
+            name="Prototype Risk Estimate",
+            value=f"{predicted_risk.title()} prototype risk estimate",
             indicator=risk_indicator,
         ),
         ml_prediction=MLPredictionResponse(**prediction_result),

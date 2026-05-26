@@ -86,8 +86,8 @@ EXECUTIVE SUMMARY
 Recommendation: {recommendation_decision.recommendation_label if recommendation_decision else (ml.recommendation.replace('_', ' ').title() if ml else 'Not available')}
 Decision Confidence: {_score(recommendation_decision.decision_confidence_score if recommendation_decision else None)} ({recommendation_decision.confidence_level.title() if recommendation_decision else "Not available"})
 Predicted Risk Class: {ml.predicted_risk_class.title() if ml else 'Not available'}
-Predicted Monthly Net Revenue: {_money(ml.predicted_monthly_net_revenue if ml else None)}
-Predicted Feasibility Score: {_score(ml.predicted_feasibility_score if ml else None)}
+Prototype Monthly Net Revenue Estimate: {_money(ml.predicted_monthly_net_revenue if ml else None)}
+Prototype Feasibility Estimate: {_score(ml.predicted_feasibility_score if ml else None)}
 Prediction Confidence: {_score(credibility.overall_confidence_score if credibility else None)} ({credibility.confidence_level.title() if credibility else "Not available"})
 
 RECOMMENDATION DECISION
@@ -105,7 +105,7 @@ Major Concerns:
 CORE MONITORS
 Competition: {dashboard.competition_monitor.value} [{dashboard.competition_monitor.indicator.upper()}]
 Revenue: {dashboard.revenue_monitor.value} [{dashboard.revenue_monitor.indicator.upper()}]
-Investment Risk: {dashboard.risk_monitor.value} [{dashboard.risk_monitor.indicator.upper()}]
+Prototype Risk Estimate: {dashboard.risk_monitor.value} [{dashboard.risk_monitor.indicator.upper()}]
 
 DEMOGRAPHIC SNAPSHOT
 Population Total: {_number(population_total)}
@@ -120,7 +120,7 @@ People and Location Summary: {dashboard.people_location_packet.summary_text}
 PREDICTION EXPLANATION
 Revenue Explanation: {explanation.revenue_explanation if explanation else 'Not available'}
 Risk Explanation: {explanation.risk_explanation if explanation else 'Not available'}
-Feasibility Explanation: {explanation.feasibility_explanation if explanation else 'Not available'}
+Prototype Feasibility Explanation: {explanation.feasibility_explanation if explanation else 'Not available'}
 
 CREDIBILITY AND DATA USE
 Confidence Level: {credibility.confidence_level.title() if credibility else "Not available"}
@@ -165,8 +165,8 @@ Commercial Cost Pressure: {lease_cost_evidence.commercial_cost_pressure_level.ti
 Data Quality Note: {lease_cost_evidence.data_quality_note if lease_cost_evidence else "Add commercial lease listings or broker data for this scenario."}
 
 MODEL FACTORS
-Competition Score: {_score(explanation.competition_score if explanation else None)}
-Demand Score: {_score(explanation.demand_score if explanation else None)}
+Competition Pressure Estimate: {_score(explanation.competition_score if explanation else None)}
+Demand Proxy Index: {_score(explanation.demand_score if explanation else None)}
 Demographic Fit Score: {_score(explanation.demographic_fit_score if explanation else None)}
 Estimated Competitor Count: {explanation.estimated_competitor_count if explanation else 'Not available'}
 Reachable Population Estimate: {_number(explanation.reachable_population_estimate if explanation else None)}
@@ -181,12 +181,12 @@ NEGATIVE FACTORS
 
 MODULE BREAKDOWN
 Demand Analysis: {breakdown.demand_analysis.summary if breakdown else 'Not available'}
-Demand Score: {_score(breakdown.demand_analysis.score if breakdown else None)}
+Demand Proxy Index: {_score(breakdown.demand_analysis.score if breakdown else None)}
 Demand Signals:
 {_lines(breakdown.demand_analysis.signals if breakdown else [])}
 
 Competition Analysis: {breakdown.competition_analysis.summary if breakdown else 'Not available'}
-Competition Score: {_score(breakdown.competition_analysis.score if breakdown else None)}
+Competition Pressure Estimate: {_score(breakdown.competition_analysis.score if breakdown else None)}
 Competition Signals:
 {_lines(breakdown.competition_analysis.signals if breakdown else [])}
 

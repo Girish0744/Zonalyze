@@ -60,17 +60,17 @@ def analyze_demand(features: Dict[str, Any]) -> ModuleAnalysisResponse:
 
     if level == "strong":
         summary = (
-            "Demand signals are strong for this scenario based on reachable "
+            "Demand proxy signals are strong for this scenario based on reachable "
             "population, demographic fit, and local activity proxy signals."
         )
     elif level == "moderate":
         summary = (
-            "Demand signals are moderate. The scenario shows usable customer "
+            "Demand proxy signals are moderate. The scenario shows usable customer "
             "potential, but real foot-traffic or transaction data would improve confidence."
         )
     else:
         summary = (
-            "Demand signals are weak. The selected area and business type may need "
+            "Demand proxy signals are weak. The selected area and business type may need "
             "stronger validation before being treated as a strong opportunity."
         )
 
@@ -79,9 +79,9 @@ def analyze_demand(features: Dict[str, Any]) -> ModuleAnalysisResponse:
         level=level,
         summary=summary,
         signals=[
-            f"Reachable population estimate: {reachable_population:,.0f}",
-            f"Target customer pool estimate: {target_customer_pool:,.0f}",
-            f"Demographic fit score: {demographic_fit:.1f}/100",
+            f"Reachable population proxy: {reachable_population:,.0f}",
+            f"Target customer pool proxy: {target_customer_pool:,.0f}",
+            f"Demographic fit proxy: {demographic_fit:.1f}/100",
             f"Foot-traffic proxy index: {foot_traffic_proxy:.1f}/100",
             f"Transit access proxy index: {transit_access_proxy:.1f}/100",
         ],

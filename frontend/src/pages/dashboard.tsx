@@ -1156,7 +1156,7 @@ export default function Dashboard() {
               </div>
               <CardContent className="p-5">
                 <p className="text-xs lcd-text text-muted-foreground mb-1">
-                  Competition Status
+                  Competition Pressure Estimate
                 </p>
                 <p
                   className={`text-3xl font-mono ${indicatorTextClass(dashboardData.competition_monitor.indicator)}`}
@@ -1177,7 +1177,7 @@ export default function Dashboard() {
               </div>
               <CardContent className="p-5">
                 <p className="text-xs lcd-text text-muted-foreground mb-1">
-                  Monthly Net Revenue
+                  Prototype Revenue Estimate
                 </p>
                 <p
                   className={`text-2xl font-mono ${indicatorTextClass(dashboardData.revenue_monitor.indicator)}`}
@@ -1200,7 +1200,7 @@ export default function Dashboard() {
               </div>
               <CardContent className="p-5 relative z-10">
                 <p className="text-xs lcd-text text-muted-foreground mb-1">
-                  Investment Risk
+                  Prototype Risk Estimate
                 </p>
                 <p
                   className={`text-3xl font-mono ${indicatorTextClass(dashboardData.risk_monitor.indicator)}`}
@@ -1402,7 +1402,7 @@ export default function Dashboard() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
-                          Evidence-Aware Recommendation
+                          Decision-Support Recommendation
                         </p>
                         <p className="text-sm text-white/85 mt-1">
                           {recommendationDecision.decision_summary}
@@ -1446,7 +1446,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                   <div className="rounded border border-white/10 bg-white/[0.03] p-3">
                     <p className="text-[10px] text-muted-foreground uppercase">
-                      Feasibility
+                      Prototype Feasibility
                     </p>
                     <p className="text-lg font-mono text-primary">
                       {ml?.predicted_feasibility_score?.toFixed(1) ?? "N/A"}/100
@@ -1509,7 +1509,7 @@ export default function Dashboard() {
             <Card className="scada-panel border-white/5 bg-background/50">
               <CardContent className="p-5">
                 <p className="text-xs lcd-text text-muted-foreground mb-3">
-                  Risk Probability
+                  Prototype Risk Probability
                 </p>
                 <div className="space-y-3">
                   {riskProbabilityData.map((item) => (
@@ -1589,7 +1589,7 @@ export default function Dashboard() {
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs lcd-text text-muted-foreground">
-                    Competition Analysis
+                    Competition Evidence Analysis
                   </p>
                   <Badge
                     variant="outline"
@@ -1681,7 +1681,7 @@ export default function Dashboard() {
                   </p>
                   <p>
                     {explanation?.feasibility_explanation ??
-                      "Feasibility explanation is not available for this scenario."}
+                      "Prototype Prototype feasibility explanation is not available for this scenario."}
                   </p>
                 </div>
               </CardContent>

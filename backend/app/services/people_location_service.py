@@ -61,7 +61,7 @@ def _census_backed_packet(request: AnalyzeScenarioRequest, sensor: PeopleLocatio
         indicator=indicator,
         summary_text=(
             f"{request.municipality_name} has a population base of {population:,.0f}, "
-            f"a density of {density:,.1f} people/km², and a demand score of "
+            f"a density of {density:,.1f} people/km², and a demand proxy index of "
             f"{demand_score:.1f}/100 for {request.business_subcategory}."
         ),
         metrics=[
@@ -74,7 +74,7 @@ def _census_backed_packet(request: AnalyzeScenarioRequest, sensor: PeopleLocatio
             MetricItem(key="diversity_index_0_100", label="Diversity Index", value=diversity, unit="/100"),
             MetricItem(key="employment_rate_pct", label="Employment Rate", value=employment, unit="%"),
             MetricItem(key="renter_average_monthly_shelter_cost", label="Average Monthly Shelter Cost", value=renter_cost, unit="CAD"),
-            MetricItem(key="demand_score_0_100", label="Demand Score", value=demand_score, unit="/100"),
+            MetricItem(key="demand_score_0_100", label="Demand Proxy Index", value=demand_score, unit="/100"),
         ],
         meta={
             "data_source": "statistics_canada_2021_processed_features",

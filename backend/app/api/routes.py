@@ -17,6 +17,7 @@ from app.schemas.demand import DemandEvidenceCatalogResponse, DemandEvidence
 from app.schemas.recommendation import RecommendationDecision
 from app.schemas.scenario_history import ScenarioComparisonResponse, ScenarioHistoryItem, ScenarioHistoryResponse
 from app.schemas.geospatial import GeospatialMarketContext
+from app.schemas.business_resolver import BusinessResolveRequest, BusinessResolveResponse
 from app.schemas.sensor_packet import SensorPacket
 from app.schemas.ai_assistant import LocalAIStatusResponse, ScenarioChatRequest, ScenarioChatResponse
 from app.services.ai_assistant_service import answer_scenario_question
@@ -47,6 +48,7 @@ from app.services.scenario_history_service import (
 )
 from app.services.geospatial_service import build_geospatial_market_context
 from app.services.osm_service import fetch_osm_competitors, fetch_osm_transit, fetch_osm_commercial_activity
+from app.services.business_resolver_service import resolve_business_query
 
 
 router = APIRouter()
@@ -207,6 +209,10 @@ def scenario_chat_route(
     db: Session = Depends(get_db),
 ):
     return answer_scenario_question(request=request, db=db)
+
+@router.post("/business/resolve", response_model=BusinessResolveResponse)
+def business_resolve_route(request: BusinessResolveRequest):
+    return resolve_business_query(request)
 
 @router.get("/validation/system", response_model=SystemValidationResponse)
 def system_validation_route(db: Session = Depends(get_db)):

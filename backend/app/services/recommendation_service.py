@@ -115,15 +115,15 @@ def build_recommendation_decision(
 
     if decision_score >= 70 and predicted_risk != "high" and predicted_revenue > 0:
         final_recommendation = "recommended"
-        recommendation_label = "Recommended"
+        recommendation_label = "Decision-Support Recommended"
         action_guidance = "This scenario is worth moving into a deeper planning stage, including direct competitor checks, site visits, and updated cost quotes."
     elif decision_score >= 45:
         final_recommendation = "borderline"
-        recommendation_label = "Borderline / Needs Review"
+        recommendation_label = "Decision-Support Borderline / Needs Review"
         action_guidance = "This scenario should not be rejected immediately, but the user should verify the weak signals before investing."
     else:
         final_recommendation = "not_recommended"
-        recommendation_label = "Not Recommended"
+        recommendation_label = "Decision-Support Not Recommended"
         action_guidance = "This scenario should be treated cautiously unless better data or a different location changes the risk profile."
 
     credibility_score = float(credibility.overall_confidence_score if credibility else 45.0)
@@ -136,12 +136,12 @@ def build_recommendation_decision(
     if predicted_revenue > 0:
         strengths.append(f"The model predicts positive monthly net revenue of {_money(predicted_revenue)}.")
     else:
-        concerns.append(f"The model predicts negative monthly net revenue of {_money(predicted_revenue)}.")
+        concerns.append(f"The prototype model estimates negative monthly net revenue of {_money(predicted_revenue)}.")
 
     if predicted_feasibility >= 70:
         strengths.append(f"The feasibility score is strong at {predicted_feasibility:.1f}/100.")
     elif predicted_feasibility < 50:
-        concerns.append(f"The feasibility score is weak at {predicted_feasibility:.1f}/100.")
+        concerns.append(f"The prototype feasibility estimate is weak at {predicted_feasibility:.1f}/100.")
 
     if demand_index >= 65:
         strengths.append(f"Demand evidence is favourable with a demand pressure index of {demand_index:.1f}/100.")
@@ -149,9 +149,9 @@ def build_recommendation_decision(
         concerns.append(f"Demand evidence is weak with a demand pressure index of {demand_index:.1f}/100.")
 
     if competition_index >= 65:
-        concerns.append(f"Competition pressure is high at {competition_index:.1f}/100.")
+        concerns.append(f"Competition pressure estimate is high at {competition_index:.1f}/100.")
     elif competition_index < 40:
-        strengths.append(f"Competition pressure is relatively low at {competition_index:.1f}/100.")
+        strengths.append(f"Competition pressure estimate is relatively low at {competition_index:.1f}/100.")
 
     if lease_median > 8000:
         concerns.append(f"The median monthly lease estimate is high at {_money(lease_median)}.")
@@ -159,9 +159,9 @@ def build_recommendation_decision(
         strengths.append(f"The median monthly lease estimate is manageable at {_money(lease_median)}.")
 
     if high_risk_prob >= 0.45:
-        concerns.append(f"The model assigns a high-risk probability of {high_risk_prob * 100:.1f}%.")
+        concerns.append(f"The prototype risk model assigns a high-risk probability of {high_risk_prob * 100:.1f}%.")
     elif low_risk_prob >= 0.45:
-        strengths.append(f"The model assigns a low-risk probability of {low_risk_prob * 100:.1f}%.")
+        strengths.append(f"The prototype risk model assigns a low-risk probability of {low_risk_prob * 100:.1f}%.")
 
     if not strengths:
         strengths.append("No strong positive signal dominates this scenario yet.")
@@ -170,28 +170,28 @@ def build_recommendation_decision(
 
     evidence_signals = [
         RecommendationEvidenceSignal(
-            name="Predicted monthly net revenue",
+            name="Prototype monthly net revenue estimate",
             value=_money(predicted_revenue),
             direction="positive" if predicted_revenue > 0 else "negative",
             impact="high",
             source_type="model_prediction",
         ),
         RecommendationEvidenceSignal(
-            name="Predicted feasibility score",
+            name="Prototype feasibility estimate",
             value=f"{predicted_feasibility:.1f}/100",
             direction="positive" if predicted_feasibility >= 60 else "negative" if predicted_feasibility < 45 else "mixed",
             impact="high",
             source_type="model_prediction",
         ),
         RecommendationEvidenceSignal(
-            name="Competition pressure",
+            name="Competition pressure estimate",
             value=f"{competition_index:.1f}/100",
             direction="negative" if competition_index >= 65 else "positive" if competition_index < 40 else "mixed",
             impact="medium",
             source_type="evidence_or_proxy",
         ),
         RecommendationEvidenceSignal(
-            name="Demand pressure",
+            name="Demand proxy index",
             value=f"{demand_index:.1f}/100",
             direction="positive" if demand_index >= 65 else "negative" if demand_index < 45 else "mixed",
             impact="medium",
@@ -208,10 +208,10 @@ def build_recommendation_decision(
 
     decision_summary = (
         f"{recommendation_label} with {confidence_level} decision confidence. "
-        f"The decision score is {decision_score:.1f}/100 and combines model predictions, evidence signals, and data credibility."
+        f"The decision score is {decision_score:.1f}/100 and combines prototype model predictions, evidence signals, and data credibility."
     )
     decision_rationale = (
-        f"The recommendation is based on predicted revenue, feasibility, risk probability, demand evidence, "
+        f"The decision-support recommendation is based on prototype revenue estimates, feasibility, risk probability, demand evidence, "
         f"competition evidence, lease-cost evidence, and the current credibility profile. "
         f"It should be treated as decision support, not as a guarantee of business outcome."
     )

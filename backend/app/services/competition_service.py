@@ -39,7 +39,7 @@ def analyze_competition(features: Dict[str, Any]) -> ModuleAnalysisResponse:
             f"Competition uses a market observation catalog source: {source}."
         )
         signals.append(
-            f"The selected radius contains about {competitor_count:.0f} same-category competitors based on the catalog row."
+            f"The selected radius contains about {competitor_count:.0f} same-category competitors based on the current evidence/catalog row."
         )
         if nearest_distance > 0:
             signals.append(
@@ -47,7 +47,7 @@ def analyze_competition(features: Dict[str, Any]) -> ModuleAnalysisResponse:
             )
     else:
         signals.append(
-            "No competition observation row was found for this exact scenario, so the system used the fallback proxy estimate."
+            "No competition observation row was found for this exact scenario, so the system used the fallback proxy estimate, which should be treated as limited-confidence evidence."
         )
         signals.append(
             f"The fallback method estimates about {competitor_count:.0f} relevant competitors inside the selected radius."
@@ -77,7 +77,7 @@ def analyze_competition(features: Dict[str, Any]) -> ModuleAnalysisResponse:
 
     level = _level_from_score(score)
     summary = (
-        f"Competition pressure is {level} with a derived index of {score:.1f}/100. "
+        f"Competition pressure estimate is {level} with a derived proxy index of {score:.1f}/100. "
         f"Source credibility is {credibility}. Method: {method}."
     )
 

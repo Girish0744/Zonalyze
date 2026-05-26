@@ -188,27 +188,27 @@ def build_prediction_credibility(
     model_predicted_outputs: List[OutputEvidenceItem] = [
         _item(
             "predicted_monthly_net_revenue",
-            "Predicted monthly net revenue",
+            "Prototype monthly net revenue estimate",
             "model_predicted",
             "moderate",
             "Random forest regressor trained on simulation-generated business scenarios",
-            "This is a model output, but its training labels are still simulation-based. It should be treated as a planning estimate.",
+            "This is a prototype model output trained on simulation-generated labels. It should be treated as a planning estimate, not a validated revenue forecast.",
         ),
         _item(
             "predicted_risk_class",
-            "Predicted investment risk class",
+            "Prototype investment risk estimate",
             "model_predicted",
             "moderate",
             "Random forest classifier trained on proxy risk labels",
-            "The model predicts the most likely risk class within the current prototype data world, not a guaranteed real-world failure probability.",
+            "The model predicts a prototype risk category within the current simulated training environment, not a validated real-world failure probability.",
         ),
         _item(
             "predicted_feasibility_score",
-            "Predicted feasibility score",
+            "Prototype feasibility estimate",
             "model_predicted",
             "moderate",
             "Random forest regressor trained on proxy feasibility labels",
-            "This should be used for comparison between scenarios, not as an absolute truth.",
+            "This should be used for comparison between scenarios, not as an objective feasibility truth.",
         ),
     ]
 
@@ -289,7 +289,7 @@ def build_prediction_credibility(
             ),
             _item(
                 "competition_score_0_100",
-                "Competition pressure",
+                "Competition pressure estimate",
                 "proxy_estimated",
                 "limited",
                 "Derived from fallback competitor estimate and competitor density",
@@ -300,7 +300,7 @@ def build_prediction_credibility(
         derived_metrics.append(
             _item(
                 "competition_score_0_100",
-                "Competition pressure index",
+                "Competition pressure estimate estimate",
                 "derived_from_catalog_observation",
                 "medium",
                 str(features.get("competition_data_source", "Competition observation catalog")),
@@ -340,7 +340,7 @@ def build_prediction_credibility(
         proxy_estimated_inputs.append(
             _item(
                 "demand_score_0_100",
-                "Demand score",
+                "Demand proxy index",
                 "proxy_estimated",
                 "limited",
                 "Estimated from demographic fit, density, income, employment, and competition pressure",

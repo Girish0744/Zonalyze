@@ -45,7 +45,7 @@ def build_prediction_explanation(
     _add_factor(
         positive_factors,
         demand_score >= 65,
-        f"Demand is strong for this business type with a demand score of {_score(demand_score)}.",
+        f"Demand proxy is strong for this business type with a demand score of {_score(demand_score)}.",
     )
     _add_factor(
         positive_factors,
@@ -55,12 +55,12 @@ def build_prediction_explanation(
     _add_factor(
         positive_factors,
         competition_score < 40,
-        f"Competition pressure is manageable at {_score(competition_score)}.",
+        f"Competition pressure estimate is manageable at {_score(competition_score)}.",
     )
     _add_factor(
         positive_factors,
         revenue > 0,
-        f"The model predicts positive monthly net revenue of {_money(revenue)}.",
+        f"The prototype model estimates positive monthly net revenue of {_money(revenue)}.",
     )
     _add_factor(
         positive_factors,
@@ -81,12 +81,12 @@ def build_prediction_explanation(
     _add_factor(
         negative_factors,
         competition_score >= 65,
-        f"Competition pressure is high at {_score(competition_score)} with about {competitor_count} estimated competitors.",
+        f"Competition pressure estimate is high at {_score(competition_score)} with about {competitor_count} estimated competitors.",
     )
     _add_factor(
         negative_factors,
         revenue <= 0,
-        f"The model predicts negative monthly net revenue of {_money(revenue)}.",
+        f"The prototype model estimates negative monthly net revenue of {_money(revenue)}.",
     )
     _add_factor(
         negative_factors,
@@ -111,28 +111,28 @@ def build_prediction_explanation(
 
     if revenue > 0:
         revenue_explanation = (
-            f"The model predicts positive monthly net revenue of {_money(revenue)}. "
+            f"The prototype model estimates positive monthly net revenue of {_money(revenue)}. "
             f"This is based on estimated demand, reachable population, average ticket size, and monthly operating costs."
         )
     else:
         revenue_explanation = (
-            f"The model predicts negative monthly net revenue of {_money(revenue)}. "
+            f"The prototype model estimates negative monthly net revenue of {_money(revenue)}. "
             f"This usually means the estimated demand is not high enough to cover lease, staff, utilities, marketing, and other operating costs."
         )
 
     if risk_class == "low":
         risk_explanation = (
-            f"Risk is low because the model sees a stronger balance between demand, competition, and expected revenue. "
+            f"Prototype risk is low because the current model sees a stronger balance between demand, competition, and expected revenue. "
             f"Competition pressure is {_score(competition_score)} and demand is {_score(demand_score)}."
         )
     elif risk_class == "medium":
         risk_explanation = (
-            f"Risk is medium because the scenario has both strengths and weaknesses. "
+            f"Prototype risk is medium because the scenario has both strengths and weaknesses. "
             f"Demand is {_score(demand_score)}, while competition pressure is {_score(competition_score)}."
         )
     elif risk_class == "high":
         risk_explanation = (
-            f"Risk is high because the model detected pressure from competition, costs, or weak revenue potential. "
+            f"Prototype risk is high because the current model detected pressure from competition, costs, or weak revenue potential. "
             f"Competition pressure is {_score(competition_score)} and estimated operating cost is {_money(operating_cost)} per month."
         )
     else:
@@ -140,17 +140,17 @@ def build_prediction_explanation(
 
     if recommendation == "recommended":
         feasibility_explanation = (
-            f"The scenario is recommended because the feasibility score is {_score(feasibility)}, "
+            f"The scenario is recommended as decision support because the prototype feasibility estimate is {_score(feasibility)}, "
             f"the risk class is {risk_class}, and the predicted revenue is positive."
         )
     elif recommendation == "borderline":
         feasibility_explanation = (
-            f"The scenario is borderline because the feasibility score is {_score(feasibility)}. "
+            f"The scenario is borderline because the prototype feasibility estimate is {_score(feasibility)}. "
             f"It may still work, but the user should review cost and competition factors before making a decision."
         )
     else:
         feasibility_explanation = (
-            f"The scenario is not recommended because the feasibility score is {_score(feasibility)} "
+            f"The scenario is not recommended because the prototype feasibility estimate is {_score(feasibility)} "
             f"or the predicted risk and revenue combination is not strong enough."
         )
 
