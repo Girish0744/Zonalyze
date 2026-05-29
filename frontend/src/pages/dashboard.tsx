@@ -54,6 +54,10 @@ import { useToast } from "@/hooks/use-toast";
 
 import MarketMap from "@/components/MarketMap";
 import ScenarioAIChat from "@/components/ScenarioAIChat";
+import BusinessResolverPanel, {
+  type BusinessInputMode,
+  type BusinessResolutionResponse,
+} from "@/components/BusinessResolverPanel";
 
 import {
   analyzeScenario,
@@ -226,6 +230,13 @@ export default function Dashboard() {
     useState(DEFAULT_MUNICIPALITY);
   const [businessSubcategory, setBusinessSubcategory] =
     useState(DEFAULT_BUSINESS);
+  const [businessInputMode, setBusinessInputMode] =
+    useState<BusinessInputMode>("catalog");
+  const [customBusinessQuery, setCustomBusinessQuery] = useState("");
+  const [businessResolution, setBusinessResolution] =
+    useState<BusinessResolutionResponse | null>(null);
+  const [useCustomBusinessForMap, setUseCustomBusinessForMap] =
+    useState(false);
 
   const [municipalityOptions, setMunicipalityOptions] = useState<
     MunicipalityOption[]
@@ -284,6 +295,34 @@ export default function Dashboard() {
     () => buildRiskProbabilityData(dashboardData),
     [dashboardData],
   );
+
+  const shouldUseCustomBusinessMap =
+    businessInputMode === "custom" &&
+    useCustomBusinessForMap &&
+    customBusinessQuery.trim().length > 0 &&
+    businessResolution?.status === "resolved";
+
+  const activeGeoPayload = useMemo(() => {
+    if (shouldUseCustomBusinessMap) {
+      return {
+        municipality_name: municipalityName,
+        business_query: customBusinessQuery.trim(),
+        radius_km: radius[0],
+      };
+    }
+
+    return {
+      municipality_name: municipalityName,
+      business_subcategory: businessSubcategory,
+      radius_km: radius[0],
+    };
+  }, [
+    shouldUseCustomBusinessMap,
+    municipalityName,
+    customBusinessQuery,
+    radius,
+    businessSubcategory,
+  ]);
 
   useEffect(() => {
     async function loadStartupData() {
@@ -364,11 +403,7 @@ export default function Dashboard() {
         });
 
         setDashboardData(response);
-        const geoResponse = await fetchGeospatialMarketMap({
-          municipality_name: municipalityName,
-          business_subcategory: businessSubcategory,
-          radius_km: radius[0],
-        });
+        const geoResponse = await fetchGeospatialMarketMap(activeGeoPayload as any);
         setGeoContext(geoResponse);
         setLastUpdate(new Date());
       } catch (error) {
@@ -390,7 +425,17 @@ export default function Dashboard() {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [municipalityName, businessSubcategory, radius, toast]);
+  }, [
+    municipalityName,
+    businessSubcategory,
+    radius,
+    activeGeoPayload,
+    businessInputMode,
+    customBusinessQuery,
+    useCustomBusinessForMap,
+    businessResolution?.status,
+    toast,
+  ]);
 
   const handleExport = async () => {
     try {
@@ -693,6 +738,19 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
+          <BusinessResolverPanel
+            municipalityName={municipalityName}
+            radiusKm={radius[0]}
+            currentCatalogBusinessSubcategory={businessSubcategory}
+            businessInputMode={businessInputMode}
+            onBusinessInputModeChange={setBusinessInputMode}
+            customBusinessQuery={customBusinessQuery}
+            onCustomBusinessQueryChange={setCustomBusinessQuery}
+            useCustomBusinessForMap={useCustomBusinessForMap}
+            onUseCustomBusinessForMapChange={setUseCustomBusinessForMap}
+            onBusinessResolutionChange={setBusinessResolution}
+            className="scada-panel border-white/5"
+          />
 
           <Card className="scada-panel border-white/5">
             <CardContent className="p-4 space-y-3">

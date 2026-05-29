@@ -19,6 +19,8 @@ from app.schemas.scenario_history import ScenarioComparisonResponse, ScenarioHis
 from app.schemas.geospatial import GeospatialMarketContext, GeospatialMarketRequest
 from app.schemas.sensor_packet import SensorPacket
 from app.schemas.ai_assistant import LocalAIStatusResponse, ScenarioChatRequest, ScenarioChatResponse
+from app.schemas.business_resolver import BusinessResolveRequest, BusinessResolveResponse
+from app.services.business_resolver_service import resolve_business_query
 from app.services.ai_assistant_service import answer_scenario_question
 from app.services.local_ai_service import get_local_ai_status
 from app.services.catalog_service import get_municipalities, get_business_subcategories
@@ -142,6 +144,9 @@ def prediction_credibility_route(request: AnalyzeScenarioRequest):
         prediction_result=prediction_result,
     )
 
+@router.post("/business/resolve", response_model=BusinessResolveResponse)
+def resolve_business_route(request: BusinessResolveRequest):
+    return resolve_business_query(request)
 
 @router.post("/recommendation/decision", response_model=RecommendationDecision)
 def recommendation_decision_route(request: AnalyzeScenarioRequest):

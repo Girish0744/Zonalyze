@@ -1,0 +1,378 @@
+import { useMemo, useState } from "react";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
+
+export type BusinessInputMode = "catalog" | "custom";
+
+export type ResolvedOSMTag = {
+  key: string;
+  value: string;
+  confidence: number;
+  tag_role: string;
+  reason?: string | null;
+};
+
+export type BusinessResolutionResponse = {
+  status: "resolved" | "needs_review" | "failed" | string;
+  input_text: string;
+  normalized_business_name?: string | null;
+  primary_category?: string | null;
+  secondary_categories?: string[];
+  brand_terms?: string[];
+  specialty_terms?: string[];
+  osm_tags?: ResolvedOSMTag[];
+  rejected_osm_tags?: ResolvedOSMTag[];
+  resolution_confidence?: string;
+  confidence_score?: number;
+  source_method?: string;
+  raw_ai_available?: boolean;
+  warnings?: string[];
+  next_steps?: string[];
+  raw_ai_error?: string | null;
+};
+
+type BusinessResolverPanelProps = {
+  municipalityName: string;
+  radiusKm: number;
+  currentCatalogBusinessSubcategory: string;
+  businessInputMode: BusinessInputMode;
+  onBusinessInputModeChange: (mode: BusinessInputMode) => void;
+  customBusinessQuery: string;
+  onCustomBusinessQueryChange: (value: string) => void;
+  useCustomBusinessForMap: boolean;
+  onUseCustomBusinessForMapChange: (value: boolean) => void;
+  onBusinessResolutionChange?: (resolution: BusinessResolutionResponse | null) => void;
+  className?: string;
+};
+
+function confidenceBadgeClass(confidence?: string): string {
+  const normalized = (confidence || "").toLowerCase();
+
+  if (normalized === "high") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
+  }
+
+  if (normalized === "medium") {
+    return "border-amber-500/40 bg-amber-500/10 text-amber-200";
+  }
+
+  if (normalized === "low" || normalized === "unresolved") {
+    return "border-red-500/40 bg-red-500/10 text-red-200";
+  }
+
+  return "border-slate-600 bg-slate-900 text-slate-300";
+}
+
+function statusBadgeClass(status?: string): string {
+  if (status === "resolved") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
+  }
+
+  if (status === "needs_review") {
+    return "border-amber-500/40 bg-amber-500/10 text-amber-200";
+  }
+
+  return "border-slate-600 bg-slate-900 text-slate-300";
+}
+
+function formatScore(score?: number): string {
+  if (score === undefined || score === null || Number.isNaN(score)) return "N/A";
+  return `${Math.round(score * 100)}%`;
+}
+
+export default function BusinessResolverPanel({
+  municipalityName,
+  radiusKm,
+  currentCatalogBusinessSubcategory,
+  businessInputMode,
+  onBusinessInputModeChange,
+  customBusinessQuery,
+  onCustomBusinessQueryChange,
+  useCustomBusinessForMap,
+  onUseCustomBusinessForMapChange,
+  onBusinessResolutionChange,
+  className = "",
+}: BusinessResolverPanelProps) {
+  const [resolution, setResolution] = useState<BusinessResolutionResponse | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trimmedQuery = customBusinessQuery.trim();
+  const canResolve = trimmedQuery.length >= 3 && !isResolving;
+  const canUseForMap =
+    resolution?.status === "resolved" &&
+    Array.isArray(resolution.osm_tags) &&
+    resolution.osm_tags.length > 0;
+
+  const resolvedSummary = useMemo(() => {
+    if (!resolution) return null;
+
+    const parts = [
+      resolution.normalized_business_name,
+      resolution.primary_category,
+      ...(resolution.secondary_categories || []),
+    ].filter(Boolean);
+
+    return parts.length ? parts.join(" · ") : "Business interpretation needs review";
+  }, [resolution]);
+
+  async function resolveBusinessIdea() {
+    if (!canResolve) return;
+
+    setIsResolving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/business/resolve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          business_query: trimmedQuery,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Business resolver failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as BusinessResolutionResponse;
+      setResolution(payload);
+      onBusinessResolutionChange?.(payload);
+
+      if (payload.status === "resolved" && payload.osm_tags && payload.osm_tags.length > 0) {
+        onUseCustomBusinessForMapChange(true);
+      } else {
+        onUseCustomBusinessForMapChange(false);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Business resolver failed.";
+      setError(message);
+      setResolution(null);
+      onBusinessResolutionChange?.(null);
+      onUseCustomBusinessForMapChange(false);
+    } finally {
+      setIsResolving(false);
+    }
+  }
+
+  function switchMode(mode: BusinessInputMode) {
+    onBusinessInputModeChange(mode);
+
+    if (mode === "catalog") {
+      onUseCustomBusinessForMapChange(false);
+    }
+  }
+
+  return (
+    <section className={`rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-xl ${className}`}>
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-cyan-300/80">
+            Business interpretation
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-white">
+            User-governed business input
+          </h3>
+          <p className="mt-1 max-w-3xl text-sm text-slate-400">
+            Choose a known catalog business for the existing ML prediction flow, or enter a custom
+            business idea so Zonalyze can resolve OSM tags for map and competitor evidence.
+          </p>
+        </div>
+
+        <div className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+          {municipalityName} · {radiusKm} km
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => switchMode("catalog")}
+          className={`rounded-xl border p-4 text-left transition ${
+            businessInputMode === "catalog"
+              ? "border-cyan-400/60 bg-cyan-500/10"
+              : "border-slate-700 bg-slate-900/60 hover:border-slate-500"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-white">Known catalog business</span>
+            <span className="text-xs text-slate-400">Current ML-safe mode</span>
+          </div>
+          <p className="mt-2 text-sm text-slate-300">{currentCatalogBusinessSubcategory}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            Uses the existing business catalog assumptions and current prediction pipeline.
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => switchMode("custom")}
+          className={`rounded-xl border p-4 text-left transition ${
+            businessInputMode === "custom"
+              ? "border-cyan-400/60 bg-cyan-500/10"
+              : "border-slate-700 bg-slate-900/60 hover:border-slate-500"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-white">Custom business idea</span>
+            <span className="text-xs text-slate-400">Dynamic OSM evidence</span>
+          </div>
+          <p className="mt-2 text-sm text-slate-300">
+            Type any specific or niche idea and let local AI resolve OSM tags.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            No hardcoded category fallback is used. If AI cannot resolve it, Zonalyze asks for review.
+          </p>
+        </button>
+      </div>
+
+      {businessInputMode === "custom" ? (
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-200" htmlFor="custom-business-query">
+              Describe the business idea
+            </label>
+            <div className="mt-2 flex flex-col gap-3 md:flex-row">
+              <input
+                id="custom-business-query"
+                type="text"
+                value={customBusinessQuery}
+                onChange={(event) => {
+                  onCustomBusinessQueryChange(event.target.value);
+                  setResolution(null);
+                  setError(null);
+                  onBusinessResolutionChange?.(null);
+                  onUseCustomBusinessForMapChange(false);
+                }}
+                placeholder="Example: Esso gas station with Circle K convenience store"
+                className="min-h-11 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
+              />
+              <button
+                type="button"
+                onClick={resolveBusinessIdea}
+                disabled={!canResolve}
+                className="rounded-xl border border-cyan-400/50 bg-cyan-500/15 px-5 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+              >
+                {isResolving ? "Resolving..." : "Resolve business"}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              The resolver calls the backend <code>/business/resolve</code> endpoint and uses local AI
+              structured output when available.
+            </p>
+          </div>
+
+          {error ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              {error}
+            </div>
+          ) : null}
+
+          {resolution ? (
+            <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                    Zonalyze interpretation
+                  </p>
+                  <h4 className="mt-1 text-base font-semibold text-white">{resolvedSummary}</h4>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span className={`rounded-full border px-3 py-1 text-xs ${statusBadgeClass(resolution.status)}`}>
+                    {resolution.status}
+                  </span>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs ${confidenceBadgeClass(
+                      resolution.resolution_confidence,
+                    )}`}
+                  >
+                    {resolution.resolution_confidence || "unknown"} · {formatScore(resolution.confidence_score)}
+                  </span>
+                  <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+                    {resolution.raw_ai_available ? "Ollama resolved" : "AI unavailable"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div>
+                  <p className="text-xs text-slate-500">Brand terms</p>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {(resolution.brand_terms || []).length ? resolution.brand_terms?.join(", ") : "None detected"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Specialty terms</p>
+                  <p className="mt-1 text-sm text-slate-300">
+                    {(resolution.specialty_terms || []).length
+                      ? resolution.specialty_terms?.join(", ")
+                      : "None detected"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Source method</p>
+                  <p className="mt-1 text-sm text-slate-300">{resolution.source_method || "unknown"}</p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs text-slate-500">Validated OSM tags</p>
+                {(resolution.osm_tags || []).length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {resolution.osm_tags?.map((tag, index) => (
+                      <span
+                        key={`${tag.key}-${tag.value}-${index}`}
+                        className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100"
+                        title={tag.reason || undefined}
+                      >
+                        {tag.key}={tag.value} · {Math.round(tag.confidence * 100)}% · {tag.tag_role}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-sm text-amber-200">
+                    No validated OSM tags were returned. Map evidence should not use this custom business yet.
+                  </p>
+                )}
+              </div>
+
+              {(resolution.warnings || []).length ? (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200">
+                    Warnings
+                  </p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-100">
+                    {resolution.warnings?.map((warning, index) => (
+                      <li key={`${warning}-${index}`}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={useCustomBusinessForMap && canUseForMap}
+                  disabled={!canUseForMap}
+                  onChange={(event) => onUseCustomBusinessForMapChange(event.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-semibold text-white">Use this interpretation for map evidence</span>
+                  <br />
+                  The map will call <code>/geo/market-map</code> with <code>business_query</code> so
+                  validated AI-generated OSM tags can drive competitor/POI lookup. The ML prediction
+                  still uses the known catalog business until custom business assumptions are added.
+                </span>
+              </label>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
