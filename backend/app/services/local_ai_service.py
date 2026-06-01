@@ -132,10 +132,10 @@ def generate_with_ollama(
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.2,
+                    "temperature": 0.1,
                     "top_p": 0.85,
-                    "num_predict": 260,
-                    "num_ctx": 4096,
+                    "num_predict": 350,
+                    "num_ctx": 2048,
                 },
             },
             timeout=timeout,
