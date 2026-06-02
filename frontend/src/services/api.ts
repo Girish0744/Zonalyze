@@ -85,9 +85,13 @@ export interface PredictionCredibilityResponse {
   proxy_estimated_inputs: OutputEvidenceItem[];
   derived_metrics: OutputEvidenceItem[];
   user_facing_disclaimer: string;
+  next_data_needed: string[];
+
+  // Optional dynamic business-resolution metadata used by the custom business map flow.
+  business_query?: string | null;
+  resolved_business_name?: string | null;
   business_resolution?: BusinessResolutionResponse | null;
   cache_status?: string | null;
-  next_data_needed: string[];
 }
 
 
@@ -218,6 +222,18 @@ export interface HeatmapCell {
   source_method: string;
 }
 
+export interface FootfallHeatmapPoint {
+  point_id: string;
+  latitude: number;
+  longitude: number;
+  intensity: number;
+  evidence_type: string;
+  source: string;
+  label?: string | null;
+  osm_id?: string | null;
+  category?: string | null;
+}
+
 export interface GeospatialMarketContext {
   municipality_name: string;
   business_subcategory: string;
@@ -237,6 +253,10 @@ export interface GeospatialMarketContext {
   lease_marker_count: number;
   markers: MapMarker[];
   heatmap_cells: HeatmapCell[];
+  footfall_heatmap_points?: FootfallHeatmapPoint[];
+  footfall_heatmap_status?: string;
+  footfall_heatmap_note?: string;
+  footfall_heatmap_sources?: string[];
   osm_query_status: string;
   osm_query_note: string;
   next_data_needed: string[];
@@ -273,46 +293,6 @@ export interface GeospatialMarketMapRequest {
   radius_km: number;
   business_subcategory?: string;
   business_query?: string;
-}
-
-
-export type BusinessInputMode = "catalog" | "custom";
-
-export interface BusinessResolverOSMTag {
-  key: string;
-  value: string;
-  confidence: number;
-  tag_role: string;
-  reason?: string | null;
-}
-
-export interface BusinessResolverRejectedTag {
-  raw: unknown;
-  reason: string;
-}
-
-export interface BusinessResolutionResponse {
-  status: string;
-  input_text: string;
-  normalized_business_name: string;
-  primary_category: string;
-  secondary_categories: string[];
-  brand_terms: string[];
-  specialty_terms: string[];
-  osm_tags: BusinessResolverOSMTag[];
-  rejected_osm_tags: BusinessResolverRejectedTag[];
-  resolution_confidence: string;
-  confidence_score: number;
-  source_method: string;
-  raw_ai_available: boolean;
-  warnings: string[];
-  next_steps: string[];
-  raw_ai_error?: string | null;
-}
-
-export interface BusinessResolveRequest {
-  business_query: string;
-  model?: string | null;
 }
 
 export interface ScenarioSupportRequest {
@@ -455,6 +435,46 @@ export interface BusinessSubcategoriesResponse {
   business_subcategories: BusinessSubcategoryOption[];
 }
 
+export type BusinessInputMode = "catalog" | "custom";
+
+export interface BusinessResolverOSMTag {
+  key: string;
+  value: string;
+  confidence: number;
+  tag_role: string;
+  reason?: string | null;
+}
+
+export interface BusinessResolverRejectedTag {
+  raw: unknown;
+  reason: string;
+}
+
+export interface BusinessResolveRequest {
+  business_query: string;
+  municipality_name?: string | null;
+  model?: string | null;
+}
+
+export interface BusinessResolutionResponse {
+  status: string;
+  input_text: string;
+  normalized_business_name: string;
+  primary_category: string;
+  secondary_categories: string[];
+  brand_terms: string[];
+  specialty_terms: string[];
+  osm_tags: BusinessResolverOSMTag[];
+  rejected_osm_tags: BusinessResolverRejectedTag[];
+  resolution_confidence: string;
+  confidence_score: number;
+  source_method: string;
+  raw_ai_available: boolean;
+  warnings: string[];
+  next_steps: string[];
+  raw_ai_error?: string | null;
+}
+
 export interface RegisteredSensorsResponse {
   sensors: Record<string, string>;
 }
@@ -525,17 +545,6 @@ export function fetchGeospatialMarketMap(
   request: GeospatialMarketMapRequest,
 ): Promise<GeospatialMarketContext> {
   return requestJson<GeospatialMarketContext>(`${API_BASE}/geo/market-map`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
-}
-
-
-export function resolveBusiness(
-  request: BusinessResolveRequest,
-): Promise<BusinessResolutionResponse> {
-  return requestJson<BusinessResolutionResponse>(`${API_BASE}/business/resolve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -692,6 +701,16 @@ export function fetchBusinessSubcategories(): Promise<BusinessSubcategoriesRespo
   return requestJson<BusinessSubcategoriesResponse>(
     `${API_BASE}/business-subcategories`,
   );
+}
+
+export function resolveBusiness(
+  request: BusinessResolveRequest,
+): Promise<BusinessResolutionResponse> {
+  return requestJson<BusinessResolutionResponse>(`${API_BASE}/business/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
 }
 
 export function fetchRegisteredSensors(): Promise<RegisteredSensorsResponse> {

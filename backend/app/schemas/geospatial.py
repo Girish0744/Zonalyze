@@ -39,6 +39,25 @@ class HeatmapCell(BaseModel):
     source_method: str
 
 
+
+
+class FootfallHeatmapPoint(BaseModel):
+    point_id: str
+    latitude: float
+    longitude: float
+    intensity: float = Field(
+        default=1.0,
+        ge=0,
+        le=1,
+        description="Relative heatmap weight. This is evidence density, not live people count.",
+    )
+    evidence_type: str
+    source: str
+    label: Optional[str] = None
+    osm_id: Optional[str] = None
+    category: Optional[str] = None
+
+
 class DynamicOSMTagContext(BaseModel):
     key: str
     value: str
@@ -108,6 +127,10 @@ class GeospatialMarketContext(BaseModel):
     lease_marker_count: int
     markers: List[MapMarker]
     heatmap_cells: List[HeatmapCell]
+    footfall_heatmap_points: List[FootfallHeatmapPoint] = Field(default_factory=list)
+    footfall_heatmap_status: str = "not_requested"
+    footfall_heatmap_note: str = "Footfall evidence heatmap was not built."
+    footfall_heatmap_sources: List[str] = Field(default_factory=list)
     osm_query_status: str
     osm_query_note: str
     next_data_needed: List[str]
