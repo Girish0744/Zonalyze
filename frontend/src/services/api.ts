@@ -85,10 +85,9 @@ export interface PredictionCredibilityResponse {
   proxy_estimated_inputs: OutputEvidenceItem[];
   derived_metrics: OutputEvidenceItem[];
   user_facing_disclaimer: string;
-  next_data_needed: string[];
-  business_query?: string | null;
-  resolved_business_name?: string | null;
   business_resolution?: BusinessResolutionResponse | null;
+  cache_status?: string | null;
+  next_data_needed: string[];
 }
 
 
@@ -219,46 +218,6 @@ export interface HeatmapCell {
   source_method: string;
 }
 
-export interface ResolvedOSMTag {
-  key: string;
-  value: string;
-  confidence: number;
-  tag_role: string;
-  reason?: string | null;
-}
-
-export interface BusinessResolutionResponse {
-  status: string;
-  input_text: string;
-  normalized_business_name?: string | null;
-  primary_category?: string | null;
-  secondary_categories?: string[];
-  brand_terms?: string[];
-  specialty_terms?: string[];
-  osm_tags?: ResolvedOSMTag[];
-  rejected_osm_tags?: Array<Record<string, unknown>>;
-  resolution_confidence?: string;
-  confidence_score?: number;
-  source_method?: string;
-  raw_ai_available?: boolean;
-  warnings?: string[];
-  next_steps?: string[];
-  raw_ai_error?: string | null;
-}
-
-export interface BusinessResolveRequest {
-  business_query: string;
-  model?: string | null;
-}
-
-export interface GeospatialMarketMapRequest {
-  municipality_name: string;
-  radius_km: number;
-  business_subcategory?: string | null;
-  business_query?: string | null;
-  model?: string | null;
-}
-
 export interface GeospatialMarketContext {
   municipality_name: string;
   business_subcategory: string;
@@ -307,6 +266,84 @@ export interface AnalyzeScenarioRequest {
   municipality_name: string;
   business_subcategory: string;
   radius_km: number;
+}
+
+export interface GeospatialMarketMapRequest {
+  municipality_name: string;
+  radius_km: number;
+  business_subcategory?: string;
+  business_query?: string;
+}
+
+
+export type BusinessInputMode = "catalog" | "custom";
+
+export interface BusinessResolverOSMTag {
+  key: string;
+  value: string;
+  confidence: number;
+  tag_role: string;
+  reason?: string | null;
+}
+
+export interface BusinessResolverRejectedTag {
+  raw: unknown;
+  reason: string;
+}
+
+export interface BusinessResolutionResponse {
+  status: string;
+  input_text: string;
+  normalized_business_name: string;
+  primary_category: string;
+  secondary_categories: string[];
+  brand_terms: string[];
+  specialty_terms: string[];
+  osm_tags: BusinessResolverOSMTag[];
+  rejected_osm_tags: BusinessResolverRejectedTag[];
+  resolution_confidence: string;
+  confidence_score: number;
+  source_method: string;
+  raw_ai_available: boolean;
+  warnings: string[];
+  next_steps: string[];
+  raw_ai_error?: string | null;
+}
+
+export interface BusinessResolveRequest {
+  business_query: string;
+  model?: string | null;
+}
+
+export interface ScenarioSupportRequest {
+  municipality_name: string;
+  business_subcategory: string;
+  radius_km: number;
+  business_input_mode: "catalog" | "custom";
+  custom_business_query?: string | null;
+  use_custom_business_for_map: boolean;
+  business_resolution_status?: string | null;
+  resolved_osm_tag_count: number;
+  business_resolution_confidence?: string | null;
+}
+
+export interface ScenarioSupportSection {
+  status: string;
+  label: string;
+  summary: string;
+  reasons: string[];
+  required_next_steps: string[];
+}
+
+export interface ScenarioSupportResponse {
+  overall_status: string;
+  overall_label: string;
+  summary: string;
+  prediction_support: ScenarioSupportSection;
+  map_evidence_support: ScenarioSupportSection;
+  data_trust_notes: string[];
+  warnings: string[];
+  allowed_next_actions: string[];
 }
 
 export interface FeasibilityReportResponse {
@@ -456,16 +493,6 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function resolveBusiness(
-  request: BusinessResolveRequest,
-): Promise<BusinessResolutionResponse> {
-  return requestJson<BusinessResolutionResponse>(`${API_BASE}/business/resolve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
-}
-
 export function fetchDashboardSummary(): Promise<DashboardSummaryResponse> {
   return requestJson<DashboardSummaryResponse>(`${API_BASE}/dashboard-summary`);
 }
@@ -498,6 +525,17 @@ export function fetchGeospatialMarketMap(
   request: GeospatialMarketMapRequest,
 ): Promise<GeospatialMarketContext> {
   return requestJson<GeospatialMarketContext>(`${API_BASE}/geo/market-map`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+
+export function resolveBusiness(
+  request: BusinessResolveRequest,
+): Promise<BusinessResolutionResponse> {
+  return requestJson<BusinessResolutionResponse>(`${API_BASE}/business/resolve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
@@ -625,6 +663,17 @@ export function fetchPredictionCredibility(
       body: JSON.stringify(request),
     },
   );
+}
+
+
+export function checkScenarioSupportCoverage(
+  request: ScenarioSupportRequest,
+): Promise<ScenarioSupportResponse> {
+  return requestJson<ScenarioSupportResponse>(`${API_BASE}/scenario/support-coverage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
 }
 
 export function fetchModelStatus(): Promise<ModelStatusResponse> {

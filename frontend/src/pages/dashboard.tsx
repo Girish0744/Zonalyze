@@ -54,8 +54,10 @@ import { useToast } from "@/hooks/use-toast";
 
 import MarketMap from "@/components/MarketMap";
 import ScenarioAIChat from "@/components/ScenarioAIChat";
+import ScenarioSupportPanel from "@/components/ScenarioSupportPanel";
 import BusinessResolverPanel, {
   type BusinessInputMode,
+  type BusinessResolutionResponse,
 } from "@/components/BusinessResolverPanel";
 
 import {
@@ -71,7 +73,6 @@ import {
   generateFeasibilityReport,
   runSystemValidation,
   saveScenarioToHistory,
-  type BusinessResolutionResponse,
   type BusinessSubcategoryOption,
   type DashboardSummaryResponse,
   type GeospatialMarketContext,
@@ -222,138 +223,6 @@ function MarketMapPanel({ geoContext }: { geoContext: GeospatialMarketContext | 
   );
 }
 
-function BusinessFlowSummary({
-  businessInputMode,
-  catalogBusinessSubcategory,
-  customBusinessQuery,
-  businessResolution,
-  shouldUseCustomBusinessMap,
-  geoContext,
-}: {
-  businessInputMode: BusinessInputMode;
-  catalogBusinessSubcategory: string;
-  customBusinessQuery: string;
-  businessResolution: BusinessResolutionResponse | null;
-  shouldUseCustomBusinessMap: boolean;
-  geoContext: GeospatialMarketContext | null;
-}) {
-  const resolvedTags = businessResolution?.osm_tags ?? [];
-  const mapBusinessLabel = shouldUseCustomBusinessMap
-    ? customBusinessQuery.trim()
-    : catalogBusinessSubcategory;
-
-  return (
-    <Card className="scada-panel border-white/5">
-      <CardContent className="p-4 space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
-              Active Business Flow
-            </p>
-            <p className="mt-1 text-sm text-white/80 leading-relaxed">
-              Zonalyze is keeping prediction and map evidence separate while custom
-              business support is being validated.
-            </p>
-          </div>
-          <Badge
-            variant="outline"
-            className={
-              shouldUseCustomBusinessMap
-                ? "text-cyan-300 border-cyan-400/30"
-                : "text-primary border-primary/30"
-            }
-          >
-            {shouldUseCustomBusinessMap ? "CUSTOM MAP EVIDENCE" : "CATALOG MODE"}
-          </Badge>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
-              ML prediction input
-            </p>
-            <p className="mt-1 text-xs font-mono text-white">
-              {catalogBusinessSubcategory}
-            </p>
-            <p className="mt-2 text-[10px] text-white/50 leading-relaxed">
-              The current ML model still uses the selected catalog business because arbitrary
-              business ideas do not yet have validated financial assumptions.
-            </p>
-          </div>
-
-          <div className="rounded border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
-              Map evidence input
-            </p>
-            <p className="mt-1 text-xs font-mono text-white">
-              {mapBusinessLabel || "No map business selected"}
-            </p>
-            <p className="mt-2 text-[10px] text-white/50 leading-relaxed">
-              {shouldUseCustomBusinessMap
-                ? "The Mapbox/OSM market map is using the custom business query and validated OSM tags."
-                : "The map is using the same catalog business as the prediction flow."}
-            </p>
-          </div>
-        </div>
-
-        {businessInputMode === "custom" && (
-          <div className="rounded border border-cyan-400/20 bg-cyan-400/[0.05] p-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[9px] text-cyan-200 uppercase tracking-widest">
-                Custom interpretation
-              </span>
-              <Badge variant="outline" className="text-cyan-200 border-cyan-400/30">
-                {businessResolution?.status ?? "not resolved"}
-              </Badge>
-              {businessResolution?.resolution_confidence && (
-                <Badge variant="outline" className="text-white/70 border-white/20">
-                  confidence: {businessResolution.resolution_confidence}
-                </Badge>
-              )}
-            </div>
-
-            <p className="text-[10px] text-white/60 leading-relaxed">
-              {businessResolution?.normalized_business_name || businessResolution?.primary_category
-                ? `${businessResolution.normalized_business_name || "Resolved business"} · ${businessResolution.primary_category || "category pending"}`
-                : "Resolve a custom business idea before using it for map evidence."}
-            </p>
-
-            {resolvedTags.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {resolvedTags.slice(0, 6).map((tag, index) => (
-                  <span
-                    key={`${tag.key}-${tag.value}-${index}`}
-                    className="rounded border border-cyan-400/30 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-100"
-                  >
-                    {tag.key}={tag.value}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[10px] text-amber-200">
-                No validated OSM tags are active for map evidence yet.
-              </p>
-            )}
-
-            {businessInputMode === "custom" && !shouldUseCustomBusinessMap && (
-              <p className="text-[10px] text-amber-200 leading-relaxed">
-                Custom business mode is selected, but the map will not use it until the resolver
-                returns valid tags and “Use this interpretation for map evidence” is enabled.
-              </p>
-            )}
-          </div>
-        )}
-
-        {geoContext?.business_resolution && (
-          <p className="text-[10px] text-white/45 leading-relaxed">
-            Backend map resolver status: {geoContext.business_resolution.status} · method: {geoContext.business_resolution.source_method}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function Dashboard() {
   const { toast } = useToast();
 
@@ -432,19 +301,13 @@ export default function Dashboard() {
     businessInputMode === "custom" &&
     useCustomBusinessForMap &&
     customBusinessQuery.trim().length > 0 &&
-    businessResolution?.status === "resolved" &&
-    Array.isArray(businessResolution.osm_tags) &&
-    businessResolution.osm_tags.length > 0;
-
-  const activeCustomBusinessQuery = shouldUseCustomBusinessMap
-    ? customBusinessQuery.trim()
-    : "";
+    businessResolution?.status === "resolved";
 
   const activeGeoPayload = useMemo(() => {
-    if (shouldUseCustomBusinessMap && activeCustomBusinessQuery) {
+    if (shouldUseCustomBusinessMap) {
       return {
         municipality_name: municipalityName,
-        business_query: activeCustomBusinessQuery,
+        business_query: customBusinessQuery.trim(),
         radius_km: radius[0],
       };
     }
@@ -456,8 +319,8 @@ export default function Dashboard() {
     };
   }, [
     shouldUseCustomBusinessMap,
-    activeCustomBusinessQuery,
     municipalityName,
+    customBusinessQuery,
     radius,
     businessSubcategory,
   ]);
@@ -541,7 +404,7 @@ export default function Dashboard() {
         });
 
         setDashboardData(response);
-        const geoResponse = await fetchGeospatialMarketMap(activeGeoPayload);
+        const geoResponse = await fetchGeospatialMarketMap(activeGeoPayload as any);
         setGeoContext(geoResponse);
         setLastUpdate(new Date());
       } catch (error) {
@@ -568,6 +431,10 @@ export default function Dashboard() {
     businessSubcategory,
     radius,
     activeGeoPayload,
+    businessInputMode,
+    customBusinessQuery,
+    useCustomBusinessForMap,
+    businessResolution?.status,
     toast,
   ]);
 
@@ -883,6 +750,17 @@ export default function Dashboard() {
             useCustomBusinessForMap={useCustomBusinessForMap}
             onUseCustomBusinessForMapChange={setUseCustomBusinessForMap}
             onBusinessResolutionChange={setBusinessResolution}
+            className="scada-panel border-white/5"
+          />
+
+          <ScenarioSupportPanel
+            municipalityName={municipalityName}
+            businessSubcategory={businessSubcategory}
+            radiusKm={radius[0]}
+            businessInputMode={businessInputMode}
+            customBusinessQuery={customBusinessQuery}
+            useCustomBusinessForMap={useCustomBusinessForMap}
+            businessResolution={businessResolution}
             className="scada-panel border-white/5"
           />
 
@@ -1314,15 +1192,6 @@ export default function Dashboard() {
               Environment Sensors
             </h2>
           </div>
-
-          <BusinessFlowSummary
-            businessInputMode={businessInputMode}
-            catalogBusinessSubcategory={businessSubcategory}
-            customBusinessQuery={customBusinessQuery}
-            businessResolution={businessResolution}
-            shouldUseCustomBusinessMap={shouldUseCustomBusinessMap}
-            geoContext={geoContext}
-          />
 
           <MarketMapPanel geoContext={geoContext} />
 
