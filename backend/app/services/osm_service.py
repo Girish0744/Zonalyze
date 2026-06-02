@@ -453,7 +453,10 @@ def _fetch_overpass(query: str, cache_key: str) -> OSMFetchResult:
     except Exception as exc:
         result = OSMFetchResult(
             status="fallback_proxy",
-            note=f"Live OpenStreetMap query failed or timed out, so the map is using fallback evidence markers. Details: {type(exc).__name__}",
+            note=(
+                "Live OpenStreetMap query failed or timed out. Zonalyze returned no real POI "
+                f"elements and no proxy competitor markers were generated. Details: {type(exc).__name__}"
+            ),
             elements=[],
         )
 
