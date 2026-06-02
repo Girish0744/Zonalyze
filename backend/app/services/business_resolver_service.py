@@ -14,6 +14,10 @@ from app.schemas.business_resolver import (
     OSMTagSuggestion,
 )
 from app.services.local_ai_service import generate_with_ollama
+from app.services.business_resolution_cache_service import (
+    get_cached_business_resolution,
+    save_business_resolution_cache,
+)
 
 
 # TRUST RULE
@@ -563,6 +567,13 @@ def resolve_business_query(request: BusinessResolveRequest) -> BusinessResolveRe
             warning="Business query was empty. Enter a business idea before resolving OSM tags.",
         )
 
+    cached_response = get_cached_business_resolution(
+        business_query=business_query,
+        model=request.model,
+    )
+    if cached_response is not None:
+        return cached_response
+
     prompt = _build_business_resolution_prompt(business_query)
     ai_result = generate_with_ollama(prompt=prompt, model=request.model, timeout_seconds=90)
 
@@ -628,7 +639,7 @@ def resolve_business_query(request: BusinessResolveRequest) -> BusinessResolveRe
     if confidence_score < 0.45:
         next_steps.append("Ask the user to clarify the business idea or confirm the resolved category.")
 
-    return BusinessResolveResponse(
+    response = BusinessResolveResponse(
         status="resolved",
         input_text=business_query,
         normalized_business_name=payload.get("normalized_business_name") or business_query,
@@ -646,3 +657,11 @@ def resolve_business_query(request: BusinessResolveRequest) -> BusinessResolveRe
         next_steps=next_steps,
         raw_ai_error=None,
     )
+
+    save_business_resolution_cache(
+        business_query=business_query,
+        model=request.model,
+        response=response,
+    )
+
+    return response

@@ -20,6 +20,8 @@ from app.schemas.geospatial import GeospatialMarketContext, GeospatialMarketRequ
 from app.schemas.sensor_packet import SensorPacket
 from app.schemas.ai_assistant import LocalAIStatusResponse, ScenarioChatRequest, ScenarioChatResponse
 from app.schemas.business_resolver import BusinessResolveRequest, BusinessResolveResponse
+from app.schemas.storage_status import MongoStatusResponse
+from app.services.storage_status_service import get_mongo_status
 from app.services.business_resolver_service import resolve_business_query
 from app.services.ai_assistant_service import answer_scenario_question
 from app.services.local_ai_service import get_local_ai_status
@@ -41,6 +43,7 @@ from app.services.competition_data_service import apply_competition_observation_
 from app.services.lease_cost_data_service import apply_lease_cost_evidence_to_features, get_lease_cost_evidence, list_lease_cost_observations
 from app.services.demand_data_service import apply_demand_evidence_to_features, get_demand_evidence, list_demand_observations
 from app.services.recommendation_service import build_recommendation_decision
+
 from app.services.scenario_history_service import (
     clear_saved_scenarios,
     compare_saved_scenarios,
@@ -77,6 +80,11 @@ def db_check():
         "database_connected": success,
         "message": message
     }
+
+
+@router.get("/storage/mongo-status", response_model=MongoStatusResponse)
+def mongo_status_route():
+    return get_mongo_status()
 
 
 @router.get("/dashboard-summary", response_model=DashboardSummaryResponse)
