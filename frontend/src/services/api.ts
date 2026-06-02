@@ -86,6 +86,9 @@ export interface PredictionCredibilityResponse {
   derived_metrics: OutputEvidenceItem[];
   user_facing_disclaimer: string;
   next_data_needed: string[];
+  business_query?: string | null;
+  resolved_business_name?: string | null;
+  business_resolution?: BusinessResolutionResponse | null;
 }
 
 
@@ -214,6 +217,46 @@ export interface HeatmapCell {
   risk_intensity: number;
   label: string;
   source_method: string;
+}
+
+export interface ResolvedOSMTag {
+  key: string;
+  value: string;
+  confidence: number;
+  tag_role: string;
+  reason?: string | null;
+}
+
+export interface BusinessResolutionResponse {
+  status: string;
+  input_text: string;
+  normalized_business_name?: string | null;
+  primary_category?: string | null;
+  secondary_categories?: string[];
+  brand_terms?: string[];
+  specialty_terms?: string[];
+  osm_tags?: ResolvedOSMTag[];
+  rejected_osm_tags?: Array<Record<string, unknown>>;
+  resolution_confidence?: string;
+  confidence_score?: number;
+  source_method?: string;
+  raw_ai_available?: boolean;
+  warnings?: string[];
+  next_steps?: string[];
+  raw_ai_error?: string | null;
+}
+
+export interface BusinessResolveRequest {
+  business_query: string;
+  model?: string | null;
+}
+
+export interface GeospatialMarketMapRequest {
+  municipality_name: string;
+  radius_km: number;
+  business_subcategory?: string | null;
+  business_query?: string | null;
+  model?: string | null;
 }
 
 export interface GeospatialMarketContext {
@@ -413,6 +456,16 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export function resolveBusiness(
+  request: BusinessResolveRequest,
+): Promise<BusinessResolutionResponse> {
+  return requestJson<BusinessResolutionResponse>(`${API_BASE}/business/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
 export function fetchDashboardSummary(): Promise<DashboardSummaryResponse> {
   return requestJson<DashboardSummaryResponse>(`${API_BASE}/dashboard-summary`);
 }
@@ -442,7 +495,7 @@ export function generateFeasibilityReport(
 
 
 export function fetchGeospatialMarketMap(
-  request: AnalyzeScenarioRequest,
+  request: GeospatialMarketMapRequest,
 ): Promise<GeospatialMarketContext> {
   return requestJson<GeospatialMarketContext>(`${API_BASE}/geo/market-map`, {
     method: "POST",

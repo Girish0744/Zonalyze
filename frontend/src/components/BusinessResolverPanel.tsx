@@ -1,36 +1,11 @@
 import { useMemo, useState } from "react";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
+import {
+  resolveBusiness,
+  type BusinessResolutionResponse,
+} from "@/services/api";
 
 export type BusinessInputMode = "catalog" | "custom";
-
-export type ResolvedOSMTag = {
-  key: string;
-  value: string;
-  confidence: number;
-  tag_role: string;
-  reason?: string | null;
-};
-
-export type BusinessResolutionResponse = {
-  status: "resolved" | "needs_review" | "failed" | string;
-  input_text: string;
-  normalized_business_name?: string | null;
-  primary_category?: string | null;
-  secondary_categories?: string[];
-  brand_terms?: string[];
-  specialty_terms?: string[];
-  osm_tags?: ResolvedOSMTag[];
-  rejected_osm_tags?: ResolvedOSMTag[];
-  resolution_confidence?: string;
-  confidence_score?: number;
-  source_method?: string;
-  raw_ai_available?: boolean;
-  warnings?: string[];
-  next_steps?: string[];
-  raw_ai_error?: string | null;
-};
 
 type BusinessResolverPanelProps = {
   municipalityName: string;
@@ -124,21 +99,9 @@ export default function BusinessResolverPanel({
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/business/resolve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          business_query: trimmedQuery,
-        }),
+      const payload = await resolveBusiness({
+        business_query: trimmedQuery,
       });
-
-      if (!response.ok) {
-        throw new Error(`Business resolver failed with status ${response.status}`);
-      }
-
-      const payload = (await response.json()) as BusinessResolutionResponse;
       setResolution(payload);
       onBusinessResolutionChange?.(payload);
 
@@ -261,7 +224,8 @@ export default function BusinessResolverPanel({
             </div>
             <p className="mt-2 text-xs text-slate-500">
               The resolver calls the backend <code>/business/resolve</code> endpoint and uses local AI
-              structured output when available.
+              structured output when available. The ML prediction still uses the selected catalog
+              business until custom financial assumptions are added.
             </p>
           </div>
 
