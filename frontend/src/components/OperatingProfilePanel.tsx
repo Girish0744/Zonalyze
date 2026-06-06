@@ -1,0 +1,198 @@
+import { useMemo, useState } from "react";
+import {
+  generateOperatingProfile,
+  type OperatingProfileResponse,
+} from "@/services/operatingProfileApi";
+
+type OperatingProfilePanelProps = {
+  municipalityName: string;
+  radiusKm: number;
+  businessSubcategory?: string | null;
+  businessQuery?: string | null;
+  businessResolution?: Record<string, unknown> | null;
+  customBusinessMapActive?: boolean;
+};
+
+function formatRange(section: OperatingProfileResponse["sections"][number]) {
+  const range = section.range;
+  if (!range) return "No range returned";
+  if (range.display_value) return range.display_value;
+  const values = [range.low, range.median, range.high].filter(
+    (value) => typeof value === "number",
+  );
+  if (!values.length) return "No range returned";
+  const [low, median, high] = [range.low, range.median, range.high];
+  if (typeof low === "number" && typeof high === "number") {
+    return `${low.toLocaleString()} – ${high.toLocaleString()} ${range.unit}`;
+  }
+  if (typeof median === "number") {
+    return `${median.toLocaleString()} ${range.unit}`;
+  }
+  return `${values[0]?.toLocaleString()} ${range.unit}`;
+}
+
+function confidenceClass(confidence: string) {
+  const normalized = confidence.toLowerCase();
+  if (normalized.includes("high")) return "border-emerald-400/50 bg-emerald-500/10 text-emerald-100";
+  if (normalized.includes("moderate")) return "border-amber-400/50 bg-amber-500/10 text-amber-100";
+  if (normalized.includes("limited")) return "border-sky-400/50 bg-sky-500/10 text-sky-100";
+  return "border-slate-500/50 bg-slate-500/10 text-slate-100";
+}
+
+export default function OperatingProfilePanel({
+  municipalityName,
+  radiusKm,
+  businessSubcategory,
+  businessQuery,
+  businessResolution,
+  customBusinessMapActive = false,
+}: OperatingProfilePanelProps) {
+  const [profile, setProfile] = useState<OperatingProfileResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const activeBusinessLabel = useMemo(() => {
+    if (customBusinessMapActive && businessQuery?.trim()) return businessQuery.trim();
+    return businessSubcategory || businessQuery || "Selected business";
+  }, [businessQuery, businessSubcategory, customBusinessMapActive]);
+
+  const canGenerate = Boolean(municipalityName && radiusKm && (businessQuery || businessSubcategory));
+
+  async function handleGenerate() {
+    if (!canGenerate) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await generateOperatingProfile({
+        municipality_name: municipalityName,
+        radius_km: radiusKm,
+        business_query: businessQuery || null,
+        business_subcategory: businessSubcategory || null,
+        business_resolution: businessResolution || null,
+      });
+      setProfile(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Operating profile failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-700/70 bg-slate-950/70 p-5 shadow-xl">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/80">
+            AI Benchmark Operating Profile
+          </p>
+          <h3 className="mt-1 text-lg font-semibold text-white">
+            Estimated operating assumptions for {activeBusinessLabel}
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm text-slate-300">
+            Zonalyze estimates lease, space, staffing, customer economics, utilities, and marketing as planning ranges. These are not user-entered costs and are not hardcoded formulas; the backend asks the local AI estimator to generate a structured benchmark using available scenario context.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={!canGenerate || loading}
+          className="rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "Generating..." : "Generate profile"}
+        </button>
+      </div>
+
+      {!canGenerate && (
+        <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+          Select a municipality and business input before generating the operating profile.
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+          {error}
+        </div>
+      )}
+
+      {profile && (
+        <div className="mt-5 space-y-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(profile.overall_confidence)}`}>
+                {profile.overall_confidence} confidence
+              </span>
+              <span className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1 text-xs text-slate-200">
+                {profile.cache_status}
+              </span>
+              <span className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1 text-xs text-slate-200">
+                {profile.source_method}
+              </span>
+            </div>
+            <p className="mt-3 text-sm text-slate-300">{profile.user_facing_note}</p>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {profile.sections.map((section) => (
+              <article key={section.key} className="rounded-xl border border-slate-700 bg-slate-900/70 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-base font-semibold text-white">{section.title}</h4>
+                    <p className="mt-1 text-sm text-cyan-100">{formatRange(section)}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${confidenceClass(section.confidence)}`}>
+                    {section.confidence}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-300">{section.summary}</p>
+
+                {section.reasoning.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Reasoning</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-300">
+                      {section.reasoning.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {section.evidence_used.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Evidence used</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-300">
+                      {section.evidence_used.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {section.limitations.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Limitations</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-300">
+                      {section.limitations.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+
+          {(profile.warnings.length > 0 || profile.next_data_needed.length > 0) && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4">
+              <p className="text-sm font-semibold text-amber-100">Operating profile notes</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-50/90">
+                {[...profile.warnings, ...profile.next_data_needed].map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

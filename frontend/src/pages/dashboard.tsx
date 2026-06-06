@@ -60,6 +60,8 @@ import BusinessResolverPanel, {
   type BusinessResolutionResponse,
 } from "@/components/BusinessResolverPanel";
 
+import OperatingProfilePanel from "@/components/OperatingProfilePanel";
+
 import {
   analyzeScenario,
   clearScenarioHistory,
@@ -751,6 +753,15 @@ export default function Dashboard() {
             onUseCustomBusinessForMapChange={setUseCustomBusinessForMap}
             onBusinessResolutionChange={setBusinessResolution}
             className="scada-panel border-white/5"
+          />
+
+          <OperatingProfilePanel
+            municipalityName={municipalityName}
+            radiusKm={radius[0]}
+            businessSubcategory={businessSubcategory}
+            businessQuery={customBusinessQuery}
+            businessResolution={businessResolution as unknown as Record<string, unknown> | null}
+            customBusinessMapActive={businessInputMode === "custom" && useCustomBusinessForMap}
           />
 
           <ScenarioSupportPanel

@@ -25,6 +25,8 @@ from app.schemas.scenario_support import ScenarioSupportRequest, ScenarioSupport
 from app.services.storage_status_service import get_mongo_status
 from app.services.scenario_support_service import evaluate_scenario_support
 from app.services.business_resolver_service import resolve_business_query
+from app.schemas.operating_profile import OperatingProfileRequest, OperatingProfileResponse
+from app.services.operating_profile_service import build_operating_profile
 from app.services.ai_assistant_service import answer_scenario_question
 from app.services.local_ai_service import get_local_ai_status
 from app.services.catalog_service import get_municipalities, get_business_subcategories
@@ -158,6 +160,9 @@ def prediction_credibility_route(request: AnalyzeScenarioRequest):
 def resolve_business_route(request: BusinessResolveRequest):
     return resolve_business_query(request)
 
+@router.post("/business/operating-profile", response_model=OperatingProfileResponse)
+def operating_profile_route(request: OperatingProfileRequest):
+    return build_operating_profile(request)
 
 @router.post("/scenario/support-coverage", response_model=ScenarioSupportResponse)
 def scenario_support_coverage_route(request: ScenarioSupportRequest):
