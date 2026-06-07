@@ -61,6 +61,7 @@ import BusinessResolverPanel, {
 } from "@/components/BusinessResolverPanel";
 
 import OperatingProfilePanel from "@/components/OperatingProfilePanel";
+import LocationComparisonPanel from "@/components/LocationComparisonPanel";
 
 import {
   analyzeScenario,
@@ -276,7 +277,7 @@ export default function Dashboard() {
   const leaseCostEvidence = dashboardData?.lease_cost_evidence ?? null;
   const demandEvidence = dashboardData?.demand_evidence ?? null;
   const recommendationDecision = dashboardData?.recommendation_decision ?? null;
-  const operatingProfile = dashboardData?.operating_profile ?? null;
+  const operatingProfile = (dashboardData as any)?.operating_profile ?? null;
   const populationValue = getMetric(dashboardData, "population_total");
   const studentPct = getMetric(dashboardData, "students_pct");
   const familiesPct = getMetric(dashboardData, "families_pct");
@@ -764,6 +765,17 @@ export default function Dashboard() {
             businessResolution={businessResolution as unknown as Record<string, unknown> | null}
             customBusinessMapActive={businessInputMode === "custom" && useCustomBusinessForMap}
             initialProfile={operatingProfile}
+          />
+
+          <LocationComparisonPanel
+            municipalityName={municipalityName}
+            businessSubcategory={businessSubcategory}
+            radiusKm={radius[0]}
+            onApplyScenario={({ municipality_name, business_subcategory, radius_km }) => {
+              setMunicipalityName(municipality_name);
+              setBusinessSubcategory(business_subcategory);
+              setRadius([radius_km]);
+            }}
           />
 
           <ScenarioSupportPanel

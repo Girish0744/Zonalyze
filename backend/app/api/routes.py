@@ -57,6 +57,9 @@ from app.services.scenario_history_service import (
 from app.services.geospatial_service import build_geospatial_market_context
 from app.services.osm_service import fetch_osm_competitors, fetch_osm_transit, fetch_osm_commercial_activity
 
+from app.schemas.location_comparison import LocationComparisonRequest, LocationComparisonResponse
+from app.services.location_comparison_service import compare_locations
+
 
 router = APIRouter()
 
@@ -163,6 +166,11 @@ def resolve_business_route(request: BusinessResolveRequest):
 @router.post("/business/operating-profile", response_model=OperatingProfileResponse)
 def operating_profile_route(request: OperatingProfileRequest):
     return build_operating_profile(request)
+
+
+@router.post("/scenario/location-comparison", response_model=LocationComparisonResponse)
+def location_comparison_route(request: LocationComparisonRequest):
+    return compare_locations(request)
 
 @router.post("/scenario/support-coverage", response_model=ScenarioSupportResponse)
 def scenario_support_coverage_route(request: ScenarioSupportRequest):

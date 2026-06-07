@@ -256,6 +256,10 @@ Non-negotiable rules:
 - Do not claim a value is observed unless the provided context contains that evidence.
 - Use CAD for money and square feet for space.
 - Use the scenario context and business model reasoning. If context includes evidence values, use them as evidence signals.
+- For customer_economics, estimate average customer transaction spend in CAD/customer, not a percentage, probability, capture rate, or income fraction.
+- Do not label a section as observed_evidence unless the scenario context directly contains that exact operating value and your evidence_used names the exact context field.
+- If a value is inferred from available context plus AI reasoning, label it as evidence_assisted_ai_estimate or ai_benchmark_estimate, not observed_evidence.
+- Ensure every range follows low <= median <= high.
 
 Return exactly these top-level keys:
 status, overall_confidence, user_facing_note, sections, warnings, next_data_needed
@@ -326,6 +330,108 @@ def _coerce_section(raw: Dict[str, Any], fallback_key: str) -> OperatingProfileS
         limitations=clean_list(raw.get("limitations")),
     )
 
+
+
+
+def _format_range_display(section_key: str, range_obj: OperatingProfileRange) -> str:
+    """Format AI-provided range values for display without estimating new values."""
+    low = range_obj.low
+    median = range_obj.median
+    high = range_obj.high
+    unit = range_obj.unit or ""
+    if low is None or median is None or high is None:
+        return range_obj.display_value or ""
+
+    if "CAD" in unit:
+        if "customer" in unit.lower():
+            return f"${low:,.2f} - ${high:,.2f}/customer"
+        return f"${low:,.0f} - ${high:,.0f}/month"
+    if "sq" in unit.lower():
+        return f"{low:,.0f} - {high:,.0f} sq ft"
+    return f"{low:g} - {high:g} {unit}".strip()
+
+
+def _postprocess_section_quality(section: OperatingProfileSection) -> None:
+    """Normalize AI output without creating operating estimates.
+
+    This function only repairs ordering/labels/formatting from values already
+    provided by the model. It does not calculate lease, staffing, space, or ticket
+    predictions.
+    """
+    if section.range is not None:
+        values = [section.range.low, section.range.median, section.range.high]
+        if all(isinstance(value, (int, float)) for value in values):
+            ordered = sorted(float(value) for value in values)  # type: ignore[arg-type]
+            section.range.low, section.range.median, section.range.high = ordered
+            section.range.display_value = _format_range_display(section.key, section.range)
+
+    # Do not let the AI overclaim observed evidence when it did not name evidence.
+    if section.estimate_type == "observed_evidence" and not section.evidence_used:
+        section.estimate_type = "evidence_assisted_ai_estimate"
+        if section.confidence == "high":
+            section.confidence = "moderate"
+        section.limitations.append(
+            "The model labeled this as observed evidence, but no exact evidence field was cited, so Zonalyze downgraded it to an evidence-assisted estimate."
+        )
+
+
+def _section_quality_issues(section: OperatingProfileSection) -> List[str]:
+    """Detect unusable or clearly mismatched AI operating-profile output.
+
+    These are sanity checks, not estimation formulas. They prevent obviously bad
+    AI outputs such as $0 ranges or $0.05/customer grocery-ticket values from
+    entering the dashboard as if they were useful estimates.
+    """
+    issues: List[str] = []
+    if section.range is None:
+        return [f"{section.key}: missing numeric range"]
+
+    low = section.range.low
+    median = section.range.median
+    high = section.range.high
+    values = [low, median, high]
+    if any(value is None for value in values):
+        issues.append(f"{section.key}: incomplete numeric range")
+        return issues
+    if any(float(value or 0) <= 0 for value in values):
+        issues.append(f"{section.key}: range contains zero or negative value")
+        return issues
+    if not (float(low) <= float(median) <= float(high)):  # type: ignore[arg-type]
+        issues.append(f"{section.key}: range is not ordered low <= median <= high")
+
+    # Unit-specific sanity checks. These do not estimate values; they reject
+    # outputs that are clearly the wrong measurement, e.g., percentage returned
+    # as CAD/customer.
+    median_value = float(median or 0)
+    if section.key == "customer_economics" and median_value < 1:
+        issues.append(
+            "customer_economics: value appears to be a percentage/probability instead of CAD average transaction spend"
+        )
+    if section.key == "space_requirement" and median_value < 100:
+        issues.append("space_requirement: value is too small to represent a business premises size in sq ft")
+    if section.key in {"lease_cost", "staffing", "utilities_marketing"} and median_value < 100:
+        issues.append(f"{section.key}: value is too small to represent a monthly operating cost in CAD")
+
+    if section.estimate_type == "observed_evidence" and not section.evidence_used:
+        issues.append(f"{section.key}: claimed observed_evidence without naming evidence_used")
+
+    return issues
+
+
+def _postprocess_response_quality(response: OperatingProfileResponse) -> List[str]:
+    """Apply safe cleanups and return remaining quality issues."""
+    for section in response.sections:
+        _postprocess_section_quality(section)
+
+    issues: List[str] = []
+    for section in response.sections:
+        issues.extend(_section_quality_issues(section))
+
+    if issues:
+        warning = "Operating profile quality guard detected and reviewed AI-generated ranges before dashboard use."
+        if warning not in response.warnings:
+            response.warnings.insert(0, warning)
+    return issues
 
 def _coerce_response(payload: Dict[str, Any], request: OperatingProfileRequest, context: Dict[str, Any], model: Optional[str]) -> OperatingProfileResponse:
     raw_sections = payload.get("sections") if isinstance(payload.get("sections"), list) else []
@@ -413,7 +519,7 @@ def _response_has_unusable_ranges(response: OperatingProfileResponse) -> bool:
     present = {section.key for section in response.sections}
     if not required.issubset(present):
         return True
-    return any(_section_has_unusable_zero_range(section) for section in response.sections)
+    return bool(_postprocess_response_quality(response))
 
 
 def _retry_nonzero_operating_profile(
@@ -431,12 +537,14 @@ def _retry_nonzero_operating_profile(
     compact_context = json.dumps(context, ensure_ascii=False, default=str)[:6500]
     retry_prompt = f"""
 Return ONLY valid JSON.
-Your previous operating-profile response used zero/placeholder ranges, which is invalid.
+Your previous operating-profile response contained unusable or mismatched ranges.
 Regenerate the operating profile with realistic non-zero AI benchmark planning ranges.
 
 Rules:
 - Every range.low, range.median, and range.high must be greater than 0.
 - Use conservative realistic ranges for the business type and municipality context.
+- For customer_economics, provide average transaction spend in CAD/customer, not a percentage or probability.
+- Do not label observed_evidence unless evidence_used names exact context fields.
 - Do not use placeholder 0 values.
 - Do not ask the user for inputs.
 - Do not invent source names or URLs.
@@ -585,25 +693,32 @@ def build_operating_profile(request: OperatingProfileRequest) -> OperatingProfil
 
     response = _coerce_response(payload, clean_request, context, clean_request.model)
 
-    # Valid JSON is not enough. Some small models copy schema placeholder values
-    # like 0-0. Reject that output and retry once with explicit non-zero rules.
-    if _response_has_unusable_ranges(response):
+    # Valid JSON is not enough. The AI can still return impossible units/values,
+    # such as $0.05/customer for grocery average-ticket economics. Reject bad
+    # structured output and retry once with stronger quality instructions.
+    quality_issues = _postprocess_response_quality(response)
+    if quality_issues:
+        issue_note = "; ".join(quality_issues[:6])
         retry_payload = _retry_nonzero_operating_profile(
             original_prompt=prompt,
-            invalid_answer=ai_result.answer,
+            invalid_answer=(
+                f"Quality issues: {issue_note}\n\n"
+                f"Previous answer:\n{ai_result.answer}"
+            ),
             context=context,
             model=clean_request.model,
         )
         if retry_payload:
             retried_response = _coerce_response(retry_payload, clean_request, context, clean_request.model)
-            if not _response_has_unusable_ranges(retried_response):
+            retried_issues = _postprocess_response_quality(retried_response)
+            if not retried_issues:
                 response = retried_response
             else:
-                response.raw_ai_error = "Local AI returned valid JSON but reused zero/placeholder operating ranges after retry."
-                response.warnings.insert(0, "Operating profile estimates are unusable because the local AI returned zero placeholder ranges.")
+                response.raw_ai_error = "Local AI returned structured operating-profile JSON, but quality guard still found issues after retry: " + "; ".join(retried_issues[:6])
+                response.warnings.insert(0, "Some operating-profile values need review because the local AI returned implausible or mislabeled ranges after retry.")
         else:
-            response.raw_ai_error = "Local AI returned valid JSON but reused zero/placeholder operating ranges, and retry failed."
-            response.warnings.insert(0, "Operating profile estimates are unusable because the local AI returned zero placeholder ranges.")
+            response.raw_ai_error = "Local AI returned structured operating-profile JSON, but quality guard retry failed: " + issue_note
+            response.warnings.insert(0, "Some operating-profile values need review because the local AI returned implausible or mislabeled ranges.")
 
     saved = save_operating_profile_cache(
         municipality_name=clean_request.municipality_name,
