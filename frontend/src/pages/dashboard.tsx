@@ -276,6 +276,7 @@ export default function Dashboard() {
   const leaseCostEvidence = dashboardData?.lease_cost_evidence ?? null;
   const demandEvidence = dashboardData?.demand_evidence ?? null;
   const recommendationDecision = dashboardData?.recommendation_decision ?? null;
+  const operatingProfile = dashboardData?.operating_profile ?? null;
   const populationValue = getMetric(dashboardData, "population_total");
   const studentPct = getMetric(dashboardData, "students_pct");
   const familiesPct = getMetric(dashboardData, "families_pct");
@@ -762,6 +763,7 @@ export default function Dashboard() {
             businessQuery={customBusinessQuery}
             businessResolution={businessResolution as unknown as Record<string, unknown> | null}
             customBusinessMapActive={businessInputMode === "custom" && useCustomBusinessForMap}
+            initialProfile={operatingProfile}
           />
 
           <ScenarioSupportPanel

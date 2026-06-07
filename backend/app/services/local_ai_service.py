@@ -165,3 +165,63 @@ def generate_with_ollama(
             model=selected_model,
             error=str(exc),
         )
+
+def generate_json_with_ollama(
+    prompt: str,
+    model: Optional[str] = None,
+    timeout_seconds: int | None = None,
+    num_predict: int | None = None,
+) -> LocalAIResult:
+    """Generate JSON-only output from Ollama when the model/API supports it.
+
+    This does not replace generate_with_ollama used by the scenario chat. It is
+    meant for strict backend endpoints that must parse structured JSON. Ollama's
+    native `format: json` option greatly reduces markdown/prose wrapping.
+    """
+    selected_model = model or _default_model()
+    timeout = timeout_seconds or int(os.getenv("OLLAMA_JSON_TIMEOUT_SECONDS", os.getenv("OLLAMA_TIMEOUT_SECONDS", "180")))
+    max_tokens = num_predict or int(os.getenv("OLLAMA_JSON_NUM_PREDICT", "1800"))
+
+    try:
+        response = requests.post(
+            f"{_base_url()}/api/generate",
+            json={
+                "model": selected_model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": 0.0,
+                    "top_p": 0.8,
+                    "num_predict": max_tokens,
+                    "num_ctx": int(os.getenv("OLLAMA_JSON_NUM_CTX", "4096")),
+                    "repeat_penalty": 1.05,
+                },
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        answer = str(payload.get("response", "")).strip()
+
+        if not answer:
+            return LocalAIResult(
+                available=False,
+                answer="",
+                model=selected_model,
+                error="Ollama returned an empty JSON response.",
+            )
+
+        return LocalAIResult(
+            available=True,
+            answer=answer,
+            model=selected_model,
+            error=None,
+        )
+    except Exception as exc:
+        return LocalAIResult(
+            available=False,
+            answer="",
+            model=selected_model,
+            error=str(exc),
+        )

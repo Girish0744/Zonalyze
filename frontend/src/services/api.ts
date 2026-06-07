@@ -86,12 +86,6 @@ export interface PredictionCredibilityResponse {
   derived_metrics: OutputEvidenceItem[];
   user_facing_disclaimer: string;
   next_data_needed: string[];
-
-  // Optional dynamic business-resolution metadata used by the custom business map flow.
-  business_query?: string | null;
-  resolved_business_name?: string | null;
-  business_resolution?: BusinessResolutionResponse | null;
-  cache_status?: string | null;
 }
 
 
@@ -188,6 +182,47 @@ export interface RecommendationDecisionResponse {
   caution_note: string;
 }
 
+export interface OperatingProfileRange {
+  low?: number | null;
+  median?: number | null;
+  high?: number | null;
+  unit: string;
+  display_value: string;
+}
+
+export interface OperatingProfileSection {
+  key: string;
+  title: string;
+  status: string;
+  estimate_type: string;
+  confidence: string;
+  range?: OperatingProfileRange | null;
+  summary: string;
+  reasoning: string[];
+  evidence_used: string[];
+  limitations: string[];
+}
+
+export interface OperatingProfileResponse {
+  status: string;
+  municipality_name: string;
+  business_query?: string | null;
+  business_subcategory?: string | null;
+  normalized_business_name?: string | null;
+  radius_km: number;
+  source_method: string;
+  cache_status: string;
+  model?: string | null;
+  overall_confidence: string;
+  user_facing_note: string;
+  sections: OperatingProfileSection[];
+  warnings: string[];
+  next_data_needed: string[];
+  raw_ai_available: boolean;
+  raw_ai_error?: string | null;
+}
+
+
 
 export interface GeoCoordinate {
   latitude: number;
@@ -222,18 +257,6 @@ export interface HeatmapCell {
   source_method: string;
 }
 
-export interface FootfallHeatmapPoint {
-  point_id: string;
-  latitude: number;
-  longitude: number;
-  intensity: number;
-  evidence_type: string;
-  source: string;
-  label?: string | null;
-  osm_id?: string | null;
-  category?: string | null;
-}
-
 export interface GeospatialMarketContext {
   municipality_name: string;
   business_subcategory: string;
@@ -253,10 +276,6 @@ export interface GeospatialMarketContext {
   lease_marker_count: number;
   markers: MapMarker[];
   heatmap_cells: HeatmapCell[];
-  footfall_heatmap_points?: FootfallHeatmapPoint[];
-  footfall_heatmap_status?: string;
-  footfall_heatmap_note?: string;
-  footfall_heatmap_sources?: string[];
   osm_query_status: string;
   osm_query_note: string;
   next_data_needed: string[];
@@ -280,6 +299,7 @@ export interface DashboardSummaryResponse {
   lease_cost_evidence: LeaseCostEvidence | null;
   demand_evidence: DemandEvidence | null;
   recommendation_decision: RecommendationDecisionResponse | null;
+  operating_profile?: OperatingProfileResponse | null;
 }
 
 export interface AnalyzeScenarioRequest {

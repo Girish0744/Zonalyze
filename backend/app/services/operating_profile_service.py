@@ -11,7 +11,7 @@ from app.schemas.operating_profile import (
     OperatingProfileResponse,
     OperatingProfileSection,
 )
-from app.services.local_ai_service import generate_with_ollama
+from app.services.local_ai_service import generate_with_ollama, generate_json_with_ollama
 
 try:
     from app.ml.scenario_feature_builder import build_prediction_features
@@ -66,14 +66,21 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """Extract a JSON object from an LLM response.
+
+    Ollama JSON mode normally returns clean JSON, but smaller local models can
+    still add whitespace, markdown fences, or occasionally trailing text. This
+    extractor is intentionally conservative: it only returns a dict when Python's
+    JSON parser can validate it.
+    """
     if not text:
         return None
 
     cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
-        cleaned = re.sub(r"```$", "", cleaned).strip()
+    cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"```$", "", cleaned).strip()
 
+    # First try the whole response.
     try:
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict):
@@ -81,18 +88,41 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
+    # Then try balanced-brace extraction instead of naive first/last brace.
     start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            parsed = json.loads(cleaned[start : end + 1])
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            return None
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(cleaned)):
+        char = cleaned[index]
+        if escape:
+            escape = False
+            continue
+        if char == "\\" and in_string:
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = cleaned[start : index + 1]
+                try:
+                    parsed = json.loads(candidate)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    return None
 
     return None
-
 
 def _serializable(value: Any) -> Any:
     """Convert pydantic/dataclass-ish objects into JSON-friendly context."""
@@ -202,52 +232,57 @@ def _build_context(request: OperatingProfileRequest) -> Dict[str, Any]:
 
 
 def _build_prompt(context: Dict[str, Any]) -> str:
-    compact_context = json.dumps(context, ensure_ascii=False, default=str)[:9000]
+    """Compact strict JSON prompt for the operating-profile estimator.
+
+    Do not include numeric zero examples in the schema. Small local models tend
+    to copy example values literally, which produced $0 and 0 sq ft outputs.
+    The prompt instead describes required fields and explicitly rejects zero
+    operating ranges unless the scenario itself is impossible.
+    """
+    compact_context = json.dumps(context, ensure_ascii=False, default=str)[:6500]
     return f"""
-Return ONLY valid JSON. No markdown. No prose outside JSON.
+You are Zonalyze's operating-profile estimator.
+Return ONLY one valid JSON object. No markdown. No comments. No text outside JSON.
 
-You are Zonalyze's operating-profile estimator for a capstone business-feasibility prototype.
+Task:
+Generate practical planning estimate ranges for this business scenario. The user should NOT need to know rent, staffing, space, ticket size, utilities, or marketing upfront.
 
-Goal:
-Generate useful planning estimates for the user's business scenario without asking the user to know lease cost, staffing cost, space, or ticket size upfront.
+Non-negotiable rules:
+- Every section must include numeric low, median, and high values greater than 0.
+- Never return 0, 0.0, null, or placeholder ranges for an active business scenario.
+- Use ranges, not single exact values.
+- If exact evidence is weak, produce an AI benchmark planning range and label confidence as limited.
+- Do not invent source names or URLs.
+- Do not claim a value is observed unless the provided context contains that evidence.
+- Use CAD for money and square feet for space.
+- Use the scenario context and business model reasoning. If context includes evidence values, use them as evidence signals.
 
-Strict rules:
-- Do NOT claim values are observed unless the provided context includes observed/evidence-backed values.
-- Do NOT mention "no source found" as the final answer. If direct evidence is weak, provide an AI benchmark planning estimate and label confidence as limited.
-- Do NOT use a single exact number when a range is more honest.
-- Do NOT fabricate source names or URLs.
-- Use CAD for money.
-- Use square feet for space.
-- If provided evidence contains lease/staff/ticket/space values, use them as evidence context.
-- If not, produce an AI benchmark range based on business type, municipality context, and operating model reasoning.
-- Keep ranges realistic and conservative. Do not overstate precision.
+Return exactly these top-level keys:
+status, overall_confidence, user_facing_note, sections, warnings, next_data_needed
 
-Return this exact JSON shape:
-{{
-  "status": "estimated",
-  "overall_confidence": "limited|moderate|high",
-  "user_facing_note": "short note explaining this is a planning estimate with confidence labels",
-  "sections": [
-    {{
-      "key": "space_requirement",
-      "title": "Space Requirement",
-      "status": "estimated|evidence_supported|limited_estimate|needs_review|unavailable",
-      "estimate_type": "ai_benchmark_estimate|evidence_assisted_ai_estimate|observed_evidence|unavailable",
-      "confidence": "limited|moderate|high|unavailable",
-      "range": {{"low": 0, "median": 0, "high": 0, "unit": "sq ft", "display_value": "example range"}},
-      "summary": "user-facing explanation",
-      "reasoning": ["why this range fits the business model"],
-      "evidence_used": ["specific evidence signals used from context, if any"],
-      "limitations": ["what would improve this estimate"]
-    }},
-    {{"key":"lease_cost", "title":"Lease Cost Range", "status":"estimated", "estimate_type":"ai_benchmark_estimate", "confidence":"limited", "range":{{"low":0,"median":0,"high":0,"unit":"CAD/month","display_value":"example range"}}, "summary":"", "reasoning":[], "evidence_used":[], "limitations":[]}},
-    {{"key":"staffing", "title":"Staffing Pattern and Cost", "status":"estimated", "estimate_type":"ai_benchmark_estimate", "confidence":"limited", "range":{{"low":0,"median":0,"high":0,"unit":"CAD/month","display_value":"example range"}}, "summary":"", "reasoning":[], "evidence_used":[], "limitations":[]}},
-    {{"key":"customer_economics", "title":"Customer Economics", "status":"estimated", "estimate_type":"ai_benchmark_estimate", "confidence":"limited", "range":{{"low":0,"median":0,"high":0,"unit":"CAD/customer","display_value":"example range"}}, "summary":"", "reasoning":[], "evidence_used":[], "limitations":[]}},
-    {{"key":"utilities_marketing", "title":"Utilities and Marketing Context", "status":"estimated", "estimate_type":"ai_benchmark_estimate", "confidence":"limited", "range":{{"low":0,"median":0,"high":0,"unit":"CAD/month","display_value":"example range"}}, "summary":"", "reasoning":[], "evidence_used":[], "limitations":[]}}
-  ],
-  "warnings": ["short transparent warnings"],
-  "next_data_needed": ["data that would improve confidence"]
-}}
+Return exactly 5 sections in this order:
+1. space_requirement
+2. lease_cost
+3. staffing
+4. customer_economics
+5. utilities_marketing
+
+Each section must be an object with:
+key, title, status, estimate_type, confidence, range, summary, reasoning, evidence_used, limitations
+
+Each range must be an object with:
+low, median, high, unit, display_value
+
+Required units:
+- space_requirement: sq ft
+- lease_cost: CAD/month
+- staffing: CAD/month
+- customer_economics: CAD/customer
+- utilities_marketing: CAD/month
+
+Use status values such as: estimated, evidence_supported, limited_estimate
+Use estimate_type values such as: ai_benchmark_estimate, evidence_assisted_ai_estimate, observed_evidence
+Use confidence values: limited, moderate, high
 
 Scenario context JSON:
 {compact_context}
@@ -355,6 +390,77 @@ def _coerce_response(payload: Dict[str, Any], request: OperatingProfileRequest, 
     )
 
 
+
+def _section_has_unusable_zero_range(section: OperatingProfileSection) -> bool:
+    """Detect the exact bad outcome where the model copied zero placeholders.
+
+    This validation does not generate fallback numbers. It only rejects unusable
+    AI output and asks the local model to try again with clearer instructions.
+    """
+    if section.range is None:
+        return True
+    values = [section.range.low, section.range.median, section.range.high]
+    numeric_values = [value for value in values if isinstance(value, (int, float))]
+    if len(numeric_values) < 3:
+        return True
+    return any(value is None or value <= 0 for value in values if value is not None) or all(float(value or 0) == 0.0 for value in values)
+
+
+def _response_has_unusable_ranges(response: OperatingProfileResponse) -> bool:
+    if not response.sections:
+        return True
+    required = set(SECTION_KEYS.keys())
+    present = {section.key for section in response.sections}
+    if not required.issubset(present):
+        return True
+    return any(_section_has_unusable_zero_range(section) for section in response.sections)
+
+
+def _retry_nonzero_operating_profile(
+    *,
+    original_prompt: str,
+    invalid_answer: str,
+    context: Dict[str, Any],
+    model: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Ask the AI to regenerate estimates when it returned valid JSON but copied zeros.
+
+    This is still AI estimation, not a static fallback. The backend does not fill
+    any business cost numbers itself.
+    """
+    compact_context = json.dumps(context, ensure_ascii=False, default=str)[:6500]
+    retry_prompt = f"""
+Return ONLY valid JSON.
+Your previous operating-profile response used zero/placeholder ranges, which is invalid.
+Regenerate the operating profile with realistic non-zero AI benchmark planning ranges.
+
+Rules:
+- Every range.low, range.median, and range.high must be greater than 0.
+- Use conservative realistic ranges for the business type and municipality context.
+- Do not use placeholder 0 values.
+- Do not ask the user for inputs.
+- Do not invent source names or URLs.
+- Label confidence as limited if evidence is weak.
+- Use the same required 5 sections: space_requirement, lease_cost, staffing, customer_economics, utilities_marketing.
+- Return top-level keys: status, overall_confidence, user_facing_note, sections, warnings, next_data_needed.
+
+Scenario context JSON:
+{compact_context}
+
+Invalid previous response:
+{invalid_answer[:5000]}
+""".strip()
+    retried = generate_json_with_ollama(
+        prompt=retry_prompt,
+        model=model,
+        timeout_seconds=180,
+        num_predict=2200,
+    )
+    if not retried.available:
+        return None
+    return _extract_json_object(retried.answer)
+
+
 def _ai_unavailable_response(request: OperatingProfileRequest, error: Optional[str]) -> OperatingProfileResponse:
     return OperatingProfileResponse(
         status="ai_unavailable",
@@ -390,6 +496,40 @@ def _ai_unavailable_response(request: OperatingProfileRequest, error: Optional[s
     )
 
 
+
+def _repair_operating_profile_json(raw_answer: str, model: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Retry once by asking Ollama JSON mode to repair its own output.
+
+    This is not a numeric fallback. It only repairs formatting when the model
+    produced a reasonable answer wrapped in invalid JSON.
+    """
+    if not raw_answer:
+        return None
+
+    repair_prompt = f"""
+Return ONLY valid JSON. Repair the following operating-profile response into the required JSON object.
+Do not add markdown. Do not explain.
+Keep the same business estimates if present. If a required section is missing, add it with conservative AI benchmark values.
+
+Required top-level keys:
+status, overall_confidence, user_facing_note, sections, warnings, next_data_needed
+Required section keys:
+space_requirement, lease_cost, staffing, customer_economics, utilities_marketing
+Each section must include: key,title,status,estimate_type,confidence,range,summary,reasoning,evidence_used,limitations.
+
+Broken response:
+{raw_answer[:9000]}
+""".strip()
+    repaired = generate_json_with_ollama(
+        prompt=repair_prompt,
+        model=model,
+        timeout_seconds=120,
+        num_predict=1800,
+    )
+    if not repaired.available:
+        return None
+    return _extract_json_object(repaired.answer)
+
 def build_operating_profile(request: OperatingProfileRequest) -> OperatingProfileResponse:
     business_query = _normalize_text(request.business_query, 240) or None
     business_subcategory = _normalize_text(request.business_subcategory, 180) or None
@@ -415,16 +555,56 @@ def build_operating_profile(request: OperatingProfileRequest) -> OperatingProfil
 
     context = _build_context(clean_request)
     prompt = _build_prompt(context)
-    ai_result = generate_with_ollama(prompt=prompt, model=clean_request.model, timeout_seconds=120)
+
+    # Use Ollama's native JSON mode for this endpoint. Scenario chat can return prose,
+    # but the operating-profile endpoint must parse structured JSON.
+    ai_result = generate_json_with_ollama(
+        prompt=prompt,
+        model=clean_request.model,
+        timeout_seconds=180,
+        num_predict=1800,
+    )
+
+    # Backward compatibility for older Ollama installs/models that may not support
+    # `format: json` cleanly. This still asks for JSON and does not create static values.
+    if not ai_result.available:
+        ai_result = generate_with_ollama(prompt=prompt, model=clean_request.model, timeout_seconds=180)
 
     if not ai_result.available:
         return _ai_unavailable_response(clean_request, ai_result.error)
 
     payload = _extract_json_object(ai_result.answer)
     if not payload:
-        return _ai_unavailable_response(clean_request, "Local AI returned invalid JSON for operating profile.")
+        payload = _repair_operating_profile_json(ai_result.answer, clean_request.model)
+
+    if not payload:
+        return _ai_unavailable_response(
+            clean_request,
+            "Local AI responded, but its operating-profile JSON could not be parsed after one repair attempt.",
+        )
 
     response = _coerce_response(payload, clean_request, context, clean_request.model)
+
+    # Valid JSON is not enough. Some small models copy schema placeholder values
+    # like 0-0. Reject that output and retry once with explicit non-zero rules.
+    if _response_has_unusable_ranges(response):
+        retry_payload = _retry_nonzero_operating_profile(
+            original_prompt=prompt,
+            invalid_answer=ai_result.answer,
+            context=context,
+            model=clean_request.model,
+        )
+        if retry_payload:
+            retried_response = _coerce_response(retry_payload, clean_request, context, clean_request.model)
+            if not _response_has_unusable_ranges(retried_response):
+                response = retried_response
+            else:
+                response.raw_ai_error = "Local AI returned valid JSON but reused zero/placeholder operating ranges after retry."
+                response.warnings.insert(0, "Operating profile estimates are unusable because the local AI returned zero placeholder ranges.")
+        else:
+            response.raw_ai_error = "Local AI returned valid JSON but reused zero/placeholder operating ranges, and retry failed."
+            response.warnings.insert(0, "Operating profile estimates are unusable because the local AI returned zero placeholder ranges.")
+
     saved = save_operating_profile_cache(
         municipality_name=clean_request.municipality_name,
         radius_km=clean_request.radius_km,

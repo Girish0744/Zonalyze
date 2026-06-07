@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   generateOperatingProfile,
   type OperatingProfileResponse,
@@ -11,6 +11,7 @@ type OperatingProfilePanelProps = {
   businessQuery?: string | null;
   businessResolution?: Record<string, unknown> | null;
   customBusinessMapActive?: boolean;
+  initialProfile?: OperatingProfileResponse | null;
 };
 
 function formatRange(section: OperatingProfileResponse["sections"][number]) {
@@ -46,10 +47,16 @@ export default function OperatingProfilePanel({
   businessQuery,
   businessResolution,
   customBusinessMapActive = false,
+  initialProfile = null,
 }: OperatingProfilePanelProps) {
-  const [profile, setProfile] = useState<OperatingProfileResponse | null>(null);
+  const [profile, setProfile] = useState<OperatingProfileResponse | null>(initialProfile);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProfile(initialProfile);
+    setError(null);
+  }, [initialProfile]);
 
   const activeBusinessLabel = useMemo(() => {
     if (customBusinessMapActive && businessQuery?.trim()) return businessQuery.trim();
@@ -98,7 +105,7 @@ export default function OperatingProfilePanel({
           disabled={!canGenerate || loading}
           className="rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Generating..." : "Generate profile"}
+          {loading ? "Generating..." : profile ? "Refresh profile" : "Generate profile"}
         </button>
       </div>
 

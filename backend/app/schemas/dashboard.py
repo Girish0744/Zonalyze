@@ -7,6 +7,7 @@ from app.schemas.competition import CompetitionObservationEvidence
 from app.schemas.lease import LeaseCostEvidence
 from app.schemas.demand import DemandEvidence
 from app.schemas.recommendation import RecommendationDecision
+from app.schemas.operating_profile import OperatingProfileResponse
 
 
 class MonitorStatus(BaseModel):
@@ -105,3 +106,7 @@ class DashboardSummaryResponse(BaseModel):
     lease_cost_evidence: LeaseCostEvidence | None = None
     demand_evidence: DemandEvidence | None = None
     recommendation_decision: RecommendationDecision | None = None
+
+    # Step 32B: unified operating profile returned with the dashboard so
+    # frontend dashboard values and operating-profile values come from the same response.
+    operating_profile: OperatingProfileResponse | None = None
