@@ -17,6 +17,7 @@ from app.schemas.demand import DemandEvidenceCatalogResponse, DemandEvidence
 from app.schemas.recommendation import RecommendationDecision
 from app.schemas.scenario_history import ScenarioComparisonResponse, ScenarioHistoryItem, ScenarioHistoryResponse
 from app.schemas.geospatial import GeospatialMarketContext, GeospatialMarketRequest
+from app.schemas.site_address import SiteAddressAnalysisRequest, SiteAddressAnalysisResponse
 from app.schemas.sensor_packet import SensorPacket
 from app.schemas.ai_assistant import LocalAIStatusResponse, ScenarioChatRequest, ScenarioChatResponse
 from app.schemas.business_resolver import BusinessResolveRequest, BusinessResolveResponse
@@ -55,10 +56,8 @@ from app.services.scenario_history_service import (
     save_dashboard_to_history,
 )
 from app.services.geospatial_service import build_geospatial_market_context
+from app.services.site_address_service import analyze_site_address
 from app.services.osm_service import fetch_osm_competitors, fetch_osm_transit, fetch_osm_commercial_activity
-
-from app.schemas.location_comparison import LocationComparisonRequest, LocationComparisonResponse
-from app.services.location_comparison_service import compare_locations
 
 
 router = APIRouter()
@@ -166,11 +165,6 @@ def resolve_business_route(request: BusinessResolveRequest):
 @router.post("/business/operating-profile", response_model=OperatingProfileResponse)
 def operating_profile_route(request: OperatingProfileRequest):
     return build_operating_profile(request)
-
-
-@router.post("/scenario/location-comparison", response_model=LocationComparisonResponse)
-def location_comparison_route(request: LocationComparisonRequest):
-    return compare_locations(request)
 
 @router.post("/scenario/support-coverage", response_model=ScenarioSupportResponse)
 def scenario_support_coverage_route(request: ScenarioSupportRequest):
@@ -334,6 +328,11 @@ def demand_evidence_route(request: AnalyzeScenarioRequest):
 @router.post("/geo/market-map", response_model=GeospatialMarketContext)
 def geospatial_market_map_route(request: GeospatialMarketRequest):
     return build_geospatial_market_context(request)
+
+
+@router.post("/geo/site-address-analysis", response_model=SiteAddressAnalysisResponse)
+def site_address_analysis_route(request: SiteAddressAnalysisRequest):
+    return analyze_site_address(request)
 
 
 

@@ -62,6 +62,8 @@ import BusinessResolverPanel, {
 
 import OperatingProfilePanel from "@/components/OperatingProfilePanel";
 import LocationComparisonPanel from "@/components/LocationComparisonPanel";
+import SiteAddressAnalysisPanel from "@/components/SiteAddressAnalysisPanel";
+
 
 import {
   analyzeScenario,
@@ -776,6 +778,13 @@ export default function Dashboard() {
               setBusinessSubcategory(business_subcategory);
               setRadius([radius_km]);
             }}
+          />
+
+          <SiteAddressAnalysisPanel
+            municipalityName={municipalityName}
+            businessSubcategory={businessSubcategory}
+            businessQuery={customBusinessQuery}
+            radiusKm={Array.isArray(radius) ? radius[0] : Number(radius)}
           />
 
           <ScenarioSupportPanel
